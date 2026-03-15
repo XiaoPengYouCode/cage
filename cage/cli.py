@@ -3,12 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from cage.defaults import DEFAULT_OUTPUT_PATH, DEFAULT_ROW_SEEDS
 from cage.models import PipelineConfig, RenderConfig
 from cage.pipeline import VoronoiPipeline
 from cage.rendering import plot_grid
 from cage.rods import CylinderRodStyle, HelixRodStyle
-
-DEFAULT_ROW_SEEDS = (116, 55, 49)
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="docs/assets/voronoi_cube_3d.png",
+        default=str(DEFAULT_OUTPUT_PATH),
         help="Path to the generated image file.",
     )
     parser.add_argument(

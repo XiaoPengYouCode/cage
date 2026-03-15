@@ -13,14 +13,22 @@
 
 - `cage/pipeline.py`：流程节点，负责采样、Voronoi 构建、边提取
 - `cage/voronoi.py`：Voronoi 几何和边/面提取
+- `cage/helix.py`：螺旋中心线、连续截面框架、管状网格生成
 - `cage/rods.py`：杆件实体化风格，当前实现包含圆柱杆和螺旋杆
 - `cage/rendering.py`：三列视图和整张图网格渲染
 - `cage/cli.py`：命令行入口和配置组装
+- `tests/`：最小几何回归测试
 
 运行：
 
 ```bash
 uv run python main.py
+```
+
+或者使用包入口：
+
+```bash
+uv run cage
 ```
 
 输出图片默认保存为：
@@ -39,4 +47,10 @@ uv run python main.py --show
 
 ```bash
 uv run python main.py --num-seeds 10 --row-seeds 116 55 49
+```
+
+运行测试：
+
+```bash
+uv run python -m unittest discover -s tests -v
 ```
