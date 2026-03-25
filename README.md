@@ -9,14 +9,15 @@
 - 第二、三列：圆柱杆版本的杆件单元与 `3 x 3 x 3` 平铺阵列
 - 第四、五列：螺旋杆版本的杆件单元与 `3 x 3 x 3` 平铺阵列
 
-代码结构现在按轻量 pipeline 拆分，方便切换不同的杆件实体化风格：
+代码结构现在按轻量 pipeline 拆分，方便切换不同的杆件实体化风格，以及后续继续接模量分析：
 
-- `cage/pipeline.py`：流程节点，负责采样、Voronoi 构建、边提取
-- `cage/voronoi.py`：Voronoi 几何和边/面提取
-- `cage/helix.py`：螺旋中心线、连续截面框架、管状网格生成
-- `cage/rods.py`：杆件实体化风格，当前实现包含圆柱杆和螺旋杆
-- `cage/rendering.py`：三列视图和整张图网格渲染
-- `cage/cli.py`：命令行入口和配置组装
+- `src/cage/pipeline.py`：流程节点，负责采样、Voronoi 构建、边提取
+- `src/cage/voronoi.py`：Voronoi 几何和边/面提取
+- `src/cage/helix.py`：螺旋中心线、连续截面框架、管状网格生成
+- `src/cage/rods.py`：杆件实体化风格，当前实现包含圆柱杆和螺旋杆
+- `src/cage/analysis/`：单胞模量分析子系统，包含几何、体素化/六面体网格、`SfePy` 线弹性求解和报告输出
+- `src/cage/rendering.py`：三列视图和整张图网格渲染
+- `src/cage/cli.py`：命令行入口和配置组装
 - `tests/`：最小几何回归测试
 
 运行：
@@ -53,4 +54,22 @@ uv run python main.py --num-seeds 10 --row-seeds 116 55 49
 
 ```bash
 uv run python -m unittest discover -s tests -v
+```
+
+模量分析命令：
+
+```bash
+uv run cage modulus --seed 55 --style both
+```
+
+当前模量分析后端为 `SfePy`，流程是：
+
+- 先把直杆或螺旋杆单胞体素化
+- 再转成规则 `Hex8` 六面体网格
+- 最后在 `SfePy` 中施加上下完全粘结压板位移边界，求 `Z` 向等效模量
+
+如果只想验证参数接线、不启动实际求解：
+
+```bash
+uv run cage modulus --seed 55 --style both --dry-run
 ```

@@ -46,17 +46,18 @@ class VoronoiPipeline:
         rows: list[RowGeometry] = []
 
         for rng_seed in config.row_seeds:
-            seeds = self.seed_sampler.run(config.num_seeds, rng_seed)
-            cells, halfspace_sets = self.voronoi_builder.run(seeds)
-            edges = self.edge_extractor.run(cells, halfspace_sets)
-            rows.append(
-                RowGeometry(
-                    rng_seed=rng_seed,
-                    seeds=seeds,
-                    cells=cells,
-                    halfspace_sets=halfspace_sets,
-                    edges=edges,
-                )
-            )
+            rows.append(self.build_row(num_seeds=config.num_seeds, rng_seed=rng_seed))
 
         return rows
+
+    def build_row(self, num_seeds: int, rng_seed: int) -> RowGeometry:
+        seeds = self.seed_sampler.run(num_seeds, rng_seed)
+        cells, halfspace_sets = self.voronoi_builder.run(seeds)
+        edges = self.edge_extractor.run(cells, halfspace_sets)
+        return RowGeometry(
+            rng_seed=rng_seed,
+            seeds=seeds,
+            cells=cells,
+            halfspace_sets=halfspace_sets,
+            edges=edges,
+        )
