@@ -11,3 +11,7 @@ wheels/
 
 # macOS metadata
 .DS_Store
+
+# Large generated assets
+*.stl
+*.rrd
