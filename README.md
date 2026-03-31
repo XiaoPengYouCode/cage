@@ -1,5 +1,7 @@
 # Cube Voronoi Demo
 
+![Voronoi Mixed Cage](docs/assets/voronoi_mixed_preview.png)
+
 使用 `uv` 管理依赖，并通过 `matplotlib` 绘制一个限定在正方体边界内的三维 Voronoi 图。种子点默认在单位正方体 `[0, 1]^3` 内做均匀采样。
 
 当前默认输出是一个 `3 x 5` 图网格：
