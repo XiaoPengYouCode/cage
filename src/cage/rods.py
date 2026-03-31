@@ -5,7 +5,12 @@ from typing import Protocol
 import matplotlib.pyplot as plt
 import numpy as np
 
-from cage.helix import HelixSpec, build_helix_centerline, build_tangents, build_tube_mesh
+from cage.helix import (
+    HelixSpec,
+    build_helix_centerline,
+    build_tangents,
+    build_tube_mesh,
+)
 
 
 class RodStyle(Protocol):
@@ -24,6 +29,37 @@ class RodStyle(Protocol):
 class CylinderRodStyle:
     name = "cylinder"
 
+    def __init__(self, tube_sides: int = 24) -> None:
+        self.tube_sides = tube_sides
+
+    def build_segment_mesh(
+        self,
+        start: np.ndarray,
+        end: np.ndarray,
+        radius: float,
+    ) -> np.ndarray:
+        """Return a (2, tube_sides, 3) ring array for a straight cylinder."""
+        direction = end - start
+        length = np.linalg.norm(direction)
+        if length <= 1e-9:
+            raise ValueError("Cannot build a rod for a zero-length segment.")
+        axis = direction / length
+        helper = (
+            np.array([1.0, 0.0, 0.0])
+            if abs(axis[0]) < 0.9
+            else np.array([0.0, 1.0, 0.0])
+        )
+        basis_u = np.cross(axis, helper)
+        basis_u /= np.linalg.norm(basis_u)
+        basis_v = np.cross(axis, basis_u)
+        thetas = np.linspace(0.0, 2.0 * np.pi, self.tube_sides, endpoint=False)
+        circle = radius * (
+            np.outer(np.cos(thetas), basis_u) + np.outer(np.sin(thetas), basis_v)
+        )
+        ring_start = start + circle
+        ring_end = end + circle
+        return np.stack([ring_start, ring_end], axis=0)
+
     def draw_segment(
         self,
         ax: plt.Axes,
@@ -38,7 +74,11 @@ class CylinderRodStyle:
             return
 
         axis = direction / length
-        helper = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        helper = (
+            np.array([1.0, 0.0, 0.0])
+            if abs(axis[0]) < 0.9
+            else np.array([0.0, 1.0, 0.0])
+        )
         basis_u = np.cross(axis, helper)
         basis_u /= np.linalg.norm(basis_u)
         basis_v = np.cross(axis, basis_u)
@@ -50,20 +90,25 @@ class CylinderRodStyle:
         x = (
             start[0]
             + axis[0] * distance_grid
-            + radius * (basis_u[0] * np.cos(theta_grid) + basis_v[0] * np.sin(theta_grid))
+            + radius
+            * (basis_u[0] * np.cos(theta_grid) + basis_v[0] * np.sin(theta_grid))
         )
         y = (
             start[1]
             + axis[1] * distance_grid
-            + radius * (basis_u[1] * np.cos(theta_grid) + basis_v[1] * np.sin(theta_grid))
+            + radius
+            * (basis_u[1] * np.cos(theta_grid) + basis_v[1] * np.sin(theta_grid))
         )
         z = (
             start[2]
             + axis[2] * distance_grid
-            + radius * (basis_u[2] * np.cos(theta_grid) + basis_v[2] * np.sin(theta_grid))
+            + radius
+            * (basis_u[2] * np.cos(theta_grid) + basis_v[2] * np.sin(theta_grid))
         )
 
-        ax.plot_surface(x, y, z, color=color, linewidth=0.0, antialiased=True, shade=True)
+        ax.plot_surface(
+            x, y, z, color=color, linewidth=0.0, antialiased=True, shade=True
+        )
 
 
 def segment_frame(
@@ -76,7 +121,9 @@ def segment_frame(
         raise ValueError("Cannot build a rod for a zero-length segment.")
 
     axis = direction / length
-    helper = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    helper = (
+        np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    )
     basis_u = np.cross(axis, helper)
     basis_u /= np.linalg.norm(basis_u)
     basis_v = np.cross(axis, basis_u)
@@ -104,6 +151,23 @@ class HelixRodStyle:
             steps_per_cycle=steps_per_cycle,
         )
 
+    def build_segment_mesh(
+        self,
+        start: np.ndarray,
+        end: np.ndarray,
+        radius: float,
+    ) -> np.ndarray:
+        _, _, basis_u, basis_v = segment_frame(start, end)
+        centerline, _ = build_helix_centerline(start, end, basis_u, basis_v, self.spec)
+        tangents = build_tangents(centerline)
+        radius_profile = np.full(len(centerline), radius * self.spec.wire_radius_ratio)
+        return build_tube_mesh(
+            centerline=centerline,
+            tangents=tangents,
+            radii=radius_profile,
+            tube_sides=self.spec.tube_sides,
+        )
+
     def draw_segment(
         self,
         ax: plt.Axes,
@@ -112,16 +176,7 @@ class HelixRodStyle:
         radius: float,
         color: str,
     ) -> None:
-        _, _, basis_u, basis_v = segment_frame(start, end)
-        centerline, _ = build_helix_centerline(start, end, basis_u, basis_v, self.spec)
-        tangents = build_tangents(centerline)
-        radius_profile = np.full(len(centerline), radius * self.spec.wire_radius_ratio)
-        rings = build_tube_mesh(
-            centerline=centerline,
-            tangents=tangents,
-            radii=radius_profile,
-            tube_sides=self.spec.tube_sides,
-        )
+        rings = self.build_segment_mesh(start, end, radius)
         ax.plot_surface(
             rings[:, :, 0],
             rings[:, :, 1],

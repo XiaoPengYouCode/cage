@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import numpy as np
 
 
-def normalize_vector(vector: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
+def normalize_vector(
+    vector: np.ndarray, fallback: np.ndarray | None = None
+) -> np.ndarray:
     norm = np.linalg.norm(vector)
     if norm > 1e-9:
         return vector / norm
@@ -15,7 +17,11 @@ def normalize_vector(vector: np.ndarray, fallback: np.ndarray | None = None) -> 
 
 
 def initial_frame_normal(tangent: np.ndarray) -> np.ndarray:
-    helper = np.array([0.0, 0.0, 1.0]) if abs(tangent[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    helper = (
+        np.array([0.0, 0.0, 1.0])
+        if abs(tangent[2]) < 0.9
+        else np.array([0.0, 1.0, 0.0])
+    )
     return normalize_vector(np.cross(tangent, helper))
 
 
@@ -27,10 +33,15 @@ def build_transport_frames(tangents: np.ndarray) -> tuple[np.ndarray, np.ndarray
     binormals[0] = normalize_vector(np.cross(tangents[0], normals[0]))
 
     for index in range(1, len(tangents)):
-        projected_normal = normals[index - 1] - np.dot(normals[index - 1], tangents[index]) * tangents[index]
+        projected_normal = (
+            normals[index - 1]
+            - np.dot(normals[index - 1], tangents[index]) * tangents[index]
+        )
         if np.linalg.norm(projected_normal) <= 1e-9:
             projected_normal = np.cross(binormals[index - 1], tangents[index])
-        normals[index] = normalize_vector(projected_normal, fallback=initial_frame_normal(tangents[index]))
+        normals[index] = normalize_vector(
+            projected_normal, fallback=initial_frame_normal(tangents[index])
+        )
         binormals[index] = normalize_vector(np.cross(tangents[index], normals[index]))
 
     return normals, binormals
@@ -59,7 +70,9 @@ def build_helix_centerline(
         raise ValueError("Cannot build a helix for a zero-length segment.")
 
     axis = direction / length
-    steps = max(spec.min_steps, int(np.ceil(spec.cycles_per_segment * spec.steps_per_cycle)))
+    steps = max(
+        spec.min_steps, int(np.ceil(spec.cycles_per_segment * spec.steps_per_cycle))
+    )
     progress = np.linspace(0.0, 1.0, steps)
     phase = np.linspace(0.0, 2.0 * np.pi * spec.cycles_per_segment, steps)
     travel = progress * length
@@ -67,9 +80,9 @@ def build_helix_centerline(
     # Only the helix offset collapses at the ends; the rod thickness stays constant.
     endpoint_envelope = np.sin(np.pi * progress) ** 2
     coil_radius = spec.amplitude_ratio * length
-    offsets = (
-        np.outer(np.cos(phase), basis_u) + np.outer(np.sin(phase), basis_v)
-    ) * (coil_radius * endpoint_envelope)[:, None]
+    offsets = (np.outer(np.cos(phase), basis_u) + np.outer(np.sin(phase), basis_v)) * (
+        coil_radius * endpoint_envelope
+    )[:, None]
     centerline = start + np.outer(travel, axis) + offsets
     return centerline, progress
 

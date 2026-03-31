@@ -10,11 +10,14 @@ from cage.defaults import (
     DEFAULT_MODULUS_JSON_PATH,
     DEFAULT_MODULUS_MARKDOWN_PATH,
     DEFAULT_OUTPUT_PATH,
+    DEFAULT_RERUN_APP_ID,
+    DEFAULT_RERUN_RRD_PATH,
     DEFAULT_ROW_SEEDS,
 )
 from cage.models import PipelineConfig, RenderConfig
 from cage.pipeline import VoronoiPipeline
 from cage.rendering import plot_grid
+from cage.rerun_asset import log_helix_edges_to_rerun, log_stl_asset
 from cage.rods import CylinderRodStyle, HelixRodStyle
 
 
@@ -54,8 +57,18 @@ def build_modulus_parser() -> argparse.ArgumentParser:
         prog="cage modulus",
         description="Solve the approximate effective modulus for a Voronoi unit cell with SfePy.",
     )
-    parser.add_argument("--seed", type=int, default=55, help="Random seed used to generate the unit cell.")
-    parser.add_argument("--num-seeds", type=int, default=10, help="Number of Voronoi seeds in the unit cell.")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=55,
+        help="Random seed used to generate the unit cell.",
+    )
+    parser.add_argument(
+        "--num-seeds",
+        type=int,
+        default=10,
+        help="Number of Voronoi seeds in the unit cell.",
+    )
     parser.add_argument(
         "--style",
         choices=("cylinder", "helix", "both"),
@@ -87,11 +100,89 @@ def build_modulus_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_rerun_stl_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="cage rerun-stl",
+        description="Load an STL asset into Rerun and optionally save the recording as an RRD file.",
+    )
+    parser.add_argument("stl_path", help="Path to the STL file to import into Rerun.")
+    parser.add_argument(
+        "--rerun-app-id",
+        default=DEFAULT_RERUN_APP_ID,
+        help="Application id used when initializing the Rerun recording.",
+    )
+    parser.add_argument(
+        "--save-rrd",
+        default=str(DEFAULT_RERUN_RRD_PATH),
+        help="Path to the output .rrd file. Pass an empty string to skip saving.",
+    )
+    parser.add_argument(
+        "--no-rerun-spawn",
+        action="store_true",
+        help="Do not auto-launch the Rerun viewer process.",
+    )
+    return parser
+
+
+def build_rerun_helix_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="cage rerun-helix",
+        description="Build the helix Voronoi cell, export it to STL, and load that STL into Rerun.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=55,
+        help="Random seed used to generate the unit cell.",
+    )
+    parser.add_argument(
+        "--num-seeds",
+        type=int,
+        default=10,
+        help="Number of Voronoi seeds in the unit cell.",
+    )
+    parser.add_argument(
+        "--radius",
+        type=float,
+        default=0.012,
+        help="Base rod radius before helix wire scaling.",
+    )
+    parser.add_argument(
+        "--stl-output",
+        default="",
+        help="Optional path to keep the generated STL. If omitted, a temporary STL is used and deleted after logging.",
+    )
+    parser.add_argument(
+        "--rerun-app-id",
+        default=DEFAULT_RERUN_APP_ID,
+        help="Application id used when initializing the Rerun recording.",
+    )
+    parser.add_argument(
+        "--save-rrd",
+        default=str(DEFAULT_RERUN_RRD_PATH),
+        help="Path to the output .rrd file. Pass an empty string to skip saving.",
+    )
+    parser.add_argument(
+        "--no-rerun-spawn",
+        action="store_true",
+        help="Do not auto-launch the Rerun viewer process.",
+    )
+    return parser
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = list(argv) if argv is not None else sys.argv[1:]
     if args and args[0] == "modulus":
         parsed = build_modulus_parser().parse_args(args[1:])
         parsed.command = "modulus"
+        return parsed
+    if args and args[0] == "rerun-stl":
+        parsed = build_rerun_stl_parser().parse_args(args[1:])
+        parsed.command = "rerun-stl"
+        return parsed
+    if args and args[0] == "rerun-helix":
+        parsed = build_rerun_helix_parser().parse_args(args[1:])
+        parsed.command = "rerun-helix"
         return parsed
     parsed = build_render_parser().parse_args(args)
     parsed.command = "render"
@@ -142,6 +233,49 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"Saved modulus reports to {summary.markdown_path.resolve()} and {summary.json_path.resolve()} "
             f"for seed={config.seed} and styles={list(config.selected_styles())}"
         )
+        return
+
+    if args.command == "rerun-stl":
+        save_path = Path(args.save_rrd) if args.save_rrd else None
+        stl_path = Path(args.stl_path)
+        log_stl_asset(
+            stl_path=stl_path,
+            app_id=args.rerun_app_id,
+            spawn=not args.no_rerun_spawn,
+            save_path=save_path,
+        )
+        if save_path is None:
+            print(f"Loaded STL into Rerun from {stl_path.resolve()}")
+        else:
+            print(
+                f"Loaded STL into Rerun from {stl_path.resolve()} "
+                f"and saved recording to {save_path.resolve()}"
+            )
+        return
+
+    if args.command == "rerun-helix":
+        if args.num_seeds < 2:
+            raise ValueError("--num-seeds must be at least 2.")
+        save_path = Path(args.save_rrd) if args.save_rrd else None
+        stl_output_path = Path(args.stl_output) if args.stl_output else None
+        row = VoronoiPipeline().build_row(num_seeds=args.num_seeds, rng_seed=args.seed)
+        summary = log_helix_edges_to_rerun(
+            row.edges,
+            radius=args.radius,
+            app_id=args.rerun_app_id,
+            spawn=not args.no_rerun_spawn,
+            save_path=save_path,
+            stl_path=stl_output_path,
+        )
+        message = (
+            f"Loaded helix STL into Rerun for seed={args.seed} "
+            f"with {summary.edge_count} segments and {summary.triangle_count} triangles"
+        )
+        if summary.stl_path is not None:
+            message += f"; kept STL at {summary.stl_path.resolve()}"
+        if summary.rrd_path is not None:
+            message += f"; saved recording to {summary.rrd_path.resolve()}"
+        print(message)
         return
 
     config = build_config(args)

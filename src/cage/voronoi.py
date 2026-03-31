@@ -57,7 +57,9 @@ def build_voronoi_cells(seeds: np.ndarray) -> tuple[list[np.ndarray], list[np.nd
 
     for seed in seeds:
         halfspaces = build_halfspaces(seed, seeds)
-        intersections = HalfspaceIntersection(halfspaces, interior_point=seed).intersections
+        intersections = HalfspaceIntersection(
+            halfspaces, interior_point=seed
+        ).intersections
         cells.append(unique_vertices(intersections))
         halfspace_sets.append(halfspaces)
 
@@ -176,7 +178,11 @@ def extract_cell_edges(
             continue
         normal = normal / normal_norm
 
-        helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        helper = (
+            np.array([1.0, 0.0, 0.0])
+            if abs(normal[0]) < 0.9
+            else np.array([0.0, 1.0, 0.0])
+        )
         basis_u = np.cross(normal, helper)
         basis_u /= np.linalg.norm(basis_u)
         basis_v = np.cross(normal, basis_u)

@@ -4,7 +4,12 @@ import unittest
 
 import numpy as np
 
-from cage.helix import HelixSpec, build_helix_centerline, build_tangents, build_tube_mesh
+from cage.helix import (
+    HelixSpec,
+    build_helix_centerline,
+    build_tangents,
+    build_tube_mesh,
+)
 from cage.rods import segment_frame
 
 

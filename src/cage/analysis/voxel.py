@@ -86,7 +86,10 @@ def build_hex_mesh(grid: VoxelGrid) -> HexMesh:
     global_node_ids = np.ravel_multi_index(node_triplets.reshape(-1, 3).T, node_shape)
     unique_nodes, inverse = np.unique(global_node_ids, return_inverse=True)
     connectivity = inverse.reshape(-1, 8).astype(np.int32)
-    coordinates = np.array(np.unravel_index(unique_nodes, node_shape), dtype=float).T / grid.resolution
+    coordinates = (
+        np.array(np.unravel_index(unique_nodes, node_shape), dtype=float).T
+        / grid.resolution
+    )
 
     return HexMesh(
         coordinates=coordinates,

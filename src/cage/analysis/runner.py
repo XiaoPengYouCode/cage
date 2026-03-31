@@ -29,7 +29,9 @@ def run_modulus_analysis(config: ModulusAnalysisConfig) -> ModulusRunSummary:
         geometry = build_segment_cloud_from_edges(row.edges, config, style)
         style_results: list[CompressionResult] = []
         for resolution in config.resolutions:
-            grid = voxelize_segment_cloud(geometry, resolution, chunk_size=config.chunk_size)
+            grid = voxelize_segment_cloud(
+                geometry, resolution, chunk_size=config.chunk_size
+            )
             style_results.append(
                 solve_compression(
                     style=style,
@@ -41,4 +43,6 @@ def run_modulus_analysis(config: ModulusAnalysisConfig) -> ModulusRunSummary:
         results[style] = style_results
 
     markdown_path, json_path = write_report(config, results)
-    return ModulusRunSummary(markdown_path=markdown_path, json_path=json_path, results=results)
+    return ModulusRunSummary(
+        markdown_path=markdown_path, json_path=json_path, results=results
+    )

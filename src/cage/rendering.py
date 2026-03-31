@@ -7,7 +7,12 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from cage.models import EdgeSegment, RenderConfig, RowGeometry
 from cage.rods import RodStyle
-from cage.voronoi import FACE_SPECS, canonical_segment_key, cube_edge_segments, face_polygon
+from cage.voronoi import (
+    FACE_SPECS,
+    canonical_segment_key,
+    cube_edge_segments,
+    face_polygon,
+)
 
 
 def generate_colors(count: int) -> list[tuple[float, float, float]]:
@@ -35,7 +40,9 @@ def configure_axes(
 def draw_cube_edges(ax: plt.Axes) -> None:
     for start, end in cube_edge_segments():
         segment = np.array([start, end])
-        ax.plot(segment[:, 0], segment[:, 1], segment[:, 2], color="#111827", linewidth=1.2)
+        ax.plot(
+            segment[:, 0], segment[:, 1], segment[:, 2], color="#111827", linewidth=1.2
+        )
 
 
 def render_surface_view(
@@ -61,7 +68,9 @@ def render_surface_view(
             ax.add_collection3d(poly3d)
 
         ax.scatter(*seed, color="#111827", s=45, depthshade=False)
-        ax.text(seed[0] + 0.02, seed[1] + 0.02, seed[2] + 0.02, f"S{index + 1}", fontsize=10)
+        ax.text(
+            seed[0] + 0.02, seed[1] + 0.02, seed[2] + 0.02, f"S{index + 1}", fontsize=10
+        )
 
     draw_cube_edges(ax)
     configure_axes(ax)

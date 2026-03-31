@@ -17,7 +17,9 @@ class SegmentCloud:
     radius: float
     style: StructureStyle
 
-    def contains_points(self, points: np.ndarray, chunk_size: int = 100_000) -> np.ndarray:
+    def contains_points(
+        self, points: np.ndarray, chunk_size: int = 100_000
+    ) -> np.ndarray:
         mask = np.zeros(len(points), dtype=bool)
         if len(points) == 0 or len(self.starts) == 0:
             return mask
@@ -27,7 +29,10 @@ class SegmentCloud:
             local_mask = np.zeros(len(point_chunk), dtype=bool)
 
             for start, end in zip(self.starts, self.ends):
-                local_mask |= point_segment_distance_squared(point_chunk, start, end) <= self.radius**2
+                local_mask |= (
+                    point_segment_distance_squared(point_chunk, start, end)
+                    <= self.radius**2
+                )
                 if np.all(local_mask):
                     break
 
@@ -36,7 +41,9 @@ class SegmentCloud:
         return mask
 
 
-def point_segment_distance_squared(points: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.ndarray:
+def point_segment_distance_squared(
+    points: np.ndarray, start: np.ndarray, end: np.ndarray
+) -> np.ndarray:
     segment = end - start
     segment_norm_sq = float(np.dot(segment, segment))
     if segment_norm_sq <= 1e-18:
@@ -69,7 +76,9 @@ def build_segment_cloud_from_edges(
     if style == "cylinder":
         starts = np.array([start for start, _ in edges], dtype=float)
         ends = np.array([end for _, end in edges], dtype=float)
-        return SegmentCloud(starts=starts, ends=ends, radius=config.rod_radius, style=style)
+        return SegmentCloud(
+            starts=starts, ends=ends, radius=config.rod_radius, style=style
+        )
 
     helix_spec = build_helix_spec(config)
     starts: list[np.ndarray] = []
@@ -94,7 +103,9 @@ def build_segment_cloud_from_edges(
     )
 
 
-def build_segment_cloud(config: ModulusAnalysisConfig, style: StructureStyle) -> SegmentCloud:
+def build_segment_cloud(
+    config: ModulusAnalysisConfig, style: StructureStyle
+) -> SegmentCloud:
     from cage.pipeline import VoronoiPipeline
 
     pipeline = VoronoiPipeline()

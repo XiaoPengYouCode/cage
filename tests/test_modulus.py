@@ -63,7 +63,9 @@ class SfePyCompressionSmokeTest(unittest.TestCase):
         result = solve_compression(
             style="cylinder",
             grid=grid,
-            material=MaterialConfig(name="test", youngs_modulus_gpa=10.0, poisson_ratio=0.0),
+            material=MaterialConfig(
+                name="test", youngs_modulus_gpa=10.0, poisson_ratio=0.0
+            ),
             compression=CompressionConfig(applied_strain=1e-3),
         )
         self.assertGreater(result.effective_modulus_gpa, 9.0)

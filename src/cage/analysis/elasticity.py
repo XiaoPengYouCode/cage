@@ -6,7 +6,14 @@ from dataclasses import dataclass
 
 import numpy as np
 from sfepy.base.base import output as sfepy_output
-from sfepy.discrete import Equation, Equations, FieldVariable, Integral, Material, Problem
+from sfepy.discrete import (
+    Equation,
+    Equations,
+    FieldVariable,
+    Integral,
+    Material,
+    Problem,
+)
 from sfepy.discrete.conditions import Conditions, EssentialBC
 from sfepy.discrete.fem import FEDomain, Field, Mesh
 from sfepy.mechanics.matcoefs import stiffness_from_youngpoisson
@@ -83,7 +90,9 @@ def build_problem(
     omega = domain.create_region("Omega", "all")
 
     axis = AXIS_TO_INDEX[compression.loaded_axis]
-    bottom = domain.create_region("Bottom", boundary_select(axis, is_top=False), "vertex")
+    bottom = domain.create_region(
+        "Bottom", boundary_select(axis, is_top=False), "vertex"
+    )
     top = domain.create_region("Top", boundary_select(axis, is_top=True), "vertex")
     if len(bottom.vertices) == 0 or len(top.vertices) == 0:
         raise ValueError("The selected geometry does not touch both loading plates.")
@@ -103,7 +112,9 @@ def build_problem(
     integral = Integral("i", order=2)
     balance = Equation(
         "balance",
-        Term.new("dw_lin_elastic(solid.D, v, u)", integral, omega, solid=solid, v=v, u=u),
+        Term.new(
+            "dw_lin_elastic(solid.D, v, u)", integral, omega, solid=solid, v=v, u=u
+        ),
     )
     problem = Problem("elasticity", equations=Equations([balance]))
     problem.set_bcs(
@@ -129,7 +140,9 @@ def solve_linear_elasticity(
     compression: CompressionConfig,
 ) -> ElasticitySystem:
     with quiet_sfepy_output():
-        problem, integral, bottom_nodes, top_nodes = build_problem(mesh_data, material, compression)
+        problem, integral, bottom_nodes, top_nodes = build_problem(
+            mesh_data, material, compression
+        )
         problem.solve(save_results=False)
 
         axis = AXIS_TO_INDEX[compression.loaded_axis]

@@ -32,6 +32,30 @@ uv run python main.py
 uv run cage
 ```
 
+如果你有一个现成的 `STL`，想直接导入 `Rerun` 并保存成 `.rrd`：
+
+```bash
+uv run cage rerun-stl path/to/model.stl --save-rrd rerun.rrd
+```
+
+如果你想直接从当前 Voronoi 螺旋杆工作流生成 `STL`，然后立刻喂给 `Rerun`：
+
+```bash
+uv run cage rerun-helix --seed 55 --save-rrd rerun.rrd
+```
+
+如果你还想把中间生成的 `STL` 留下来：
+
+```bash
+uv run cage rerun-helix --seed 55 --stl-output docs/assets/voronoi_helix_seed55.stl --save-rrd rerun.rrd
+```
+
+如果你已经手动开了 viewer，不想让命令自己拉起新窗口：
+
+```bash
+uv run cage rerun-stl path/to/model.stl --no-rerun-spawn
+```
+
 输出图片默认保存为：
 
 ```text
