@@ -2,7 +2,7 @@
 
 ![Voronoi Mixed Cage](docs/assets/voronoi_mixed_preview.png)
 
-这个仓库现在改成了 **uv workspace + 两个独立 editable package**。
+这个仓库现在采用 **单仓库 `src/` layout**，在同一个项目里并列维护两个清晰分工的 Python package。
 
 ## 这个仓库现在在做什么
 
@@ -25,7 +25,7 @@
 ### 1) `helix-voronoi`
 语义：**螺旋杆 Voronoi 单胞生成与分析工具包**
 
-位置：`packages/helix-voronoi`
+位置：`src/helix_voronoi`
 
 职责：
 - Voronoi 几何生成与边提取
@@ -35,13 +35,13 @@
 - 单胞模量分析
 
 主要源码：
-- `packages/helix-voronoi/src/helix_voronoi/pipeline.py`
-- `packages/helix-voronoi/src/helix_voronoi/voronoi.py`
-- `packages/helix-voronoi/src/helix_voronoi/helix.py`
-- `packages/helix-voronoi/src/helix_voronoi/rods.py`
-- `packages/helix-voronoi/src/helix_voronoi/rendering.py`
-- `packages/helix-voronoi/src/helix_voronoi/analysis/`
-- `packages/helix-voronoi/src/helix_voronoi/cli.py`
+- `src/helix_voronoi/pipeline.py`
+- `src/helix_voronoi/voronoi.py`
+- `src/helix_voronoi/helix.py`
+- `src/helix_voronoi/rods.py`
+- `src/helix_voronoi/rendering.py`
+- `src/helix_voronoi/analysis/`
+- `src/helix_voronoi/cli.py`
 
 CLI：
 - `uv run helix-voronoi`
@@ -52,7 +52,7 @@ CLI：
 ### 2) `topopt-backfill`
 语义：**拓扑优化密度结果到 Voronoi 模板回填的工作流包**
 
-位置：`packages/topopt-backfill`
+位置：`src/topopt_backfill`
 
 职责：
 - density NPZ 概率化
@@ -63,11 +63,11 @@ CLI：
 - 输出 backfill NPZ
 
 主要源码：
-- `packages/topopt-backfill/src/topopt_backfill/probability.py`
-- `packages/topopt-backfill/src/topopt_backfill/selection.py`
-- `packages/topopt-backfill/src/topopt_backfill/templates.py`
-- `packages/topopt-backfill/src/topopt_backfill/workflows.py`
-- `packages/topopt-backfill/src/topopt_backfill/cli.py`
+- `src/topopt_backfill/probability.py`
+- `src/topopt_backfill/selection.py`
+- `src/topopt_backfill/templates.py`
+- `src/topopt_backfill/workflows.py`
+- `src/topopt_backfill/cli.py`
 
 CLI：
 - `uv run topopt-backfill sample-seeds ...`
@@ -170,9 +170,9 @@ uv run python -m unittest discover -s tests -v
 ## 仓库结构
 
 ```text
-packages/
-  helix-voronoi/      # 螺旋杆 Voronoi 单胞生成与分析 package
-  topopt-backfill/    # 拓扑优化结果到 backfill 的 workflow package
+src/
+  helix_voronoi/      # 螺旋杆 Voronoi 单胞生成与分析 package
+  topopt_backfill/    # 拓扑优化结果到 backfill 的 workflow package
 experiments/          # 实验脚本，不承载正式主流程
   topopt_backfill/
   voxel_demos/
@@ -184,6 +184,6 @@ docs/assets/          # 文档展示图片与少量展示产物
 
 ## 其它
 
-- `packages/` 是正式交付边界
+- `src/` 是正式交付边界
 - `experiments/` 只保留还没有产品化的实验脚本
 - `datasets/` 存放可复用 `.npz` 数据，不再把这类数据混放在 `docs/assets/`

@@ -8,7 +8,7 @@
 
 ### 1. 新增独立分析子系统
 
-新增 `packages/helix-voronoi/src/helix_voronoi/analysis/`，与现有绘图/几何代码解耦，包含：
+新增 `src/helix_voronoi/analysis/`，与现有绘图/几何代码解耦，包含：
 
 - `config.py`：分析配置 dataclass，固定本次默认值
 - `geometry.py`：把当前直杆/螺旋杆几何转换成“可求解的实体域表示”
