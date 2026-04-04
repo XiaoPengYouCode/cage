@@ -1,123 +1,159 @@
-# Helix Voronoi + Topopt Backfill Workspace
+# Helix Voronoi + Topopt Backfill
 
-![Voronoi Mixed Cage](docs/assets/voronoi_mixed_preview.png)
+![Voronoi mixed preview](docs/assets/voronoi_mixed_preview.png)
 
-这个仓库现在采用 **单仓库 `src/` layout**，在同一个项目里并列维护两个清晰分工的 Python package。
+一个围绕 **Voronoi 螺旋杆结构生成** 与 **拓扑优化结果回填** 的 Python 项目。
 
-## 这个仓库现在在做什么
+当前仓库采用标准 `src/` layout，在同一个代码库里维护两个边界清晰的 package：
 
-整个仓库围绕两层能力组织：
+- `helix_voronoi`：负责几何生成、渲染、STL 导出、模量分析
+- `topopt_backfill`：负责把拓扑优化密度场转成 seed cloud，并进一步生成 backfill 数据
 
-1. **`helix-voronoi`**
-   - 面向几何生成与分析
-   - 负责 Voronoi 单胞、螺旋杆/直杆实体化、渲染、STL 导出、模量分析
+---
 
-2. **`topopt-backfill`**
-   - 面向工作流编排
-   - 负责把拓扑优化得到的 density NPZ 转成 seed cloud，并进一步生成 template backfill 数据
+## 这两个 package 分别做什么？
 
-你可以把它理解成：
-- `topopt-backfill` 解决“**从拓扑优化结果到可用 Voronoi 填充输入**”
-- `helix-voronoi` 解决“**Voronoi / helix 几何如何生成、渲染、分析**”
+### 1) `helix_voronoi`
+面向 **几何与分析**。
 
-## 包划分
-
-### 1) `helix-voronoi`
-语义：**螺旋杆 Voronoi 单胞生成与分析工具包**
-
-位置：`src/helix_voronoi`
-
-职责：
-- Voronoi 几何生成与边提取
-- 圆柱杆 / 螺旋杆实体化
-- 3D 渲染
+它负责：
+- Voronoi 单胞生成与边提取
+- 直杆 / 螺旋杆实体化
+- 3D 渲染与预览图输出
 - STL 导出
-- 单胞模量分析
+- 基于 `SfePy` 的单胞压缩模量分析
 
-主要源码：
-- `src/helix_voronoi/pipeline.py`
-- `src/helix_voronoi/voronoi.py`
-- `src/helix_voronoi/helix.py`
-- `src/helix_voronoi/rods.py`
-- `src/helix_voronoi/rendering.py`
-- `src/helix_voronoi/analysis/`
-- `src/helix_voronoi/cli.py`
+源码位置：
+- `src/helix_voronoi/`
 
-CLI：
-- `uv run helix-voronoi`
-- `uv run helix-voronoi modulus ...`
-- `uv run helix-voronoi export-helix ...`
-- `uv run helix-voronoi export-mixed ...`
+常用命令：
+```bash
+uv run helix-voronoi
+uv run helix-voronoi export-helix --seed 55
+uv run helix-voronoi export-mixed --seed 55
+uv run helix-voronoi modulus --seed 55 --style both
+```
 
-### 2) `topopt-backfill`
-语义：**拓扑优化密度结果到 Voronoi 模板回填的工作流包**
+---
 
-位置：`src/topopt_backfill`
+### 2) `topopt_backfill`
+面向 **工作流编排**。
 
-职责：
-- density NPZ 概率化
-- 从密度场采样 Voronoi seeds
-- 候选点压缩与 FPS 代表点选择
-- 3x3x3 block 聚合
-- 模板 ID 回填
-- 输出 backfill NPZ
+它负责：
+- 读取拓扑优化输出的 density NPZ
+- 把密度场映射成概率分布
+- 按目标 seed count 采样 Voronoi seeds
+- 做 candidate pool 压缩与 FPS 代表点选择
+- 生成 template backfill 数据
 
-主要源码：
-- `src/topopt_backfill/probability.py`
-- `src/topopt_backfill/selection.py`
-- `src/topopt_backfill/templates.py`
-- `src/topopt_backfill/workflows.py`
-- `src/topopt_backfill/cli.py`
+源码位置：
+- `src/topopt_backfill/`
 
-CLI：
-- `uv run topopt-backfill sample-seeds ...`
-- `uv run topopt-backfill backfill-templates ...`
+常用命令：
+```bash
+uv run topopt-backfill sample-seeds \
+  datasets/topopt/fake_density_annular_cylinder_full.npz \
+  --num-seeds 100000 \
+  --output-npz datasets/topopt/seed_probability_mapping_100k.npz
+
+uv run topopt-backfill backfill-templates \
+  datasets/topopt/fake_density_annular_cylinder_full.npz \
+  datasets/topopt/seed_probability_mapping_100k.npz \
+  --output-npz datasets/topopt/template_backfilled_helix_voronoi.npz
+```
+
+---
 
 ## 二者关系
 
-可以把它理解成：
+可以把整个项目理解成一条上下游链路：
 
-- `topopt-backfill` 是**上游工作流 package**
-- `helix-voronoi` 是**下游几何/分析 package**
-- `topopt-backfill` 会复用 `helix-voronoi` 的 Voronoi 几何能力
+1. `topopt_backfill` 先把拓扑优化结果整理成可用的 seed / backfill 数据
+2. `helix_voronoi` 再负责 Voronoi / helix 几何生成、渲染、导出与分析
 
-也就是说，**螺旋杆 Voronoi 生成** 是整体链路中的一个子工具，而不是整个项目唯一主语。
+也就是说：
+- `topopt_backfill` 偏 **输入处理与工作流**
+- `helix_voronoi` 偏 **几何核心与分析能力**
 
-## 运行
+---
 
-默认渲染：
+## 快速开始
+
+### 环境
+使用 `uv` 管理依赖：
+
+```bash
+uv sync
+```
+
+### 默认渲染
+生成默认 Voronoi 预览图：
 
 ```bash
 uv run helix-voronoi
 ```
 
-或：
+或直接从根目录入口运行：
 
 ```bash
 uv run python main.py
 ```
 
-弹出 matplotlib 窗口：
+如果需要弹出 matplotlib 窗口：
 
 ```bash
 uv run python main.py --show
 ```
 
-调整种子点数量和三组随机种子：
-
-```bash
-uv run python main.py --num-seeds 10 --row-seeds 116 55 49
-```
-
-输出图片默认保存为：
+默认输出：
 
 ```text
 docs/assets/voronoi_cube_3d.png
 ```
 
-## `topopt-backfill` 示例
+---
 
-### 1. 从拓扑优化密度结果采样种子
+## 典型工作流
+
+### A. 几何生成 / STL 导出
+
+导出 helix STL：
+
+```bash
+uv run helix-voronoi export-helix \
+  --seed 55 \
+  --stl-output docs/assets/voronoi_helix_seed55.stl
+```
+
+导出 mixed STL：
+
+```bash
+uv run helix-voronoi export-mixed \
+  --seed 55 \
+  --stl-output docs/assets/voronoi_mixed.stl
+```
+
+### B. 模量分析
+
+```bash
+uv run helix-voronoi modulus --seed 55 --style both
+```
+
+只检查配置、不启动求解：
+
+```bash
+uv run helix-voronoi modulus --seed 55 --style both --dry-run
+```
+
+当前模量分析后端为 `SfePy`，流程是：
+- 体素化直杆或螺旋杆单胞
+- 转换为规则 `Hex8` 六面体网格
+- 施加上下压板位移边界
+- 求 `Z` 向等效模量
+
+### C. 拓扑优化结果 -> seed -> backfill
+
+第一步，生成 seed mapping：
 
 ```bash
 uv run topopt-backfill sample-seeds \
@@ -126,7 +162,7 @@ uv run topopt-backfill sample-seeds \
   --output-npz datasets/topopt/seed_probability_mapping_100k.npz
 ```
 
-### 2. 做模板化 Voronoi 回填
+第二步，生成 backfill 数据：
 
 ```bash
 uv run topopt-backfill backfill-templates \
@@ -135,31 +171,37 @@ uv run topopt-backfill backfill-templates \
   --output-npz datasets/topopt/template_backfilled_helix_voronoi.npz
 ```
 
-## `helix-voronoi` 示例
+---
 
-导出 STL：
+## 目录结构
 
-```bash
-uv run helix-voronoi export-helix --seed 55 --stl-output docs/assets/voronoi_helix_seed55.stl
-uv run helix-voronoi export-mixed --seed 55 --stl-output docs/assets/voronoi_mixed.stl
+```text
+src/
+  helix_voronoi/      # 几何生成、渲染、STL、分析
+  topopt_backfill/    # density -> seeds -> backfill 工作流
+
+experiments/
+  topopt_backfill/    # 还未产品化的实验脚本
+  voxel_demos/        # toy voxel demo
+
+datasets/
+  topopt/             # 拓扑优化链路用到的 npz 数据
+  voxel/              # voxel demo 数据
+
+docs/assets/          # 文档图片与展示产物
+tests/                # 回归测试
 ```
 
-模量分析：
+---
 
-```bash
-uv run helix-voronoi modulus --seed 55 --style both
-```
+## 开发约定
 
-只验证配置、不启动求解：
+- 正式功能放 `src/`
+- 实验脚本放 `experiments/`
+- 可复用 `.npz` 数据放 `datasets/`
+- 文档插图和展示图片放 `docs/assets/`
 
-```bash
-uv run helix-voronoi modulus --seed 55 --style both --dry-run
-```
-
-当前模量分析后端为 `SfePy`，流程是：
-- 先把直杆或螺旋杆单胞体素化
-- 再转成规则 `Hex8` 六面体网格
-- 最后在 `SfePy` 中施加上下完全粘结压板位移边界，求 `Z` 向等效模量
+---
 
 ## 测试
 
@@ -167,23 +209,9 @@ uv run helix-voronoi modulus --seed 55 --style both --dry-run
 uv run python -m unittest discover -s tests -v
 ```
 
-## 仓库结构
+---
 
-```text
-src/
-  helix_voronoi/      # 螺旋杆 Voronoi 单胞生成与分析 package
-  topopt_backfill/    # 拓扑优化结果到 backfill 的 workflow package
-experiments/          # 实验脚本，不承载正式主流程
-  topopt_backfill/
-  voxel_demos/
-datasets/             # 可复用 npz 数据资产
-  topopt/
-  voxel/
-docs/assets/          # 文档展示图片与少量展示产物
-```
+## 相关文档
 
-## 其它
-
-- `src/` 是正式交付边界
-- `experiments/` 只保留还没有产品化的实验脚本
-- `datasets/` 存放可复用 `.npz` 数据，不再把这类数据混放在 `docs/assets/`
+- 模量分析方案：`docs/analysis/modulus-plan.md`
+- 体素 demo：`docs/voxel_torus_demo.md`
