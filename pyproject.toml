@@ -1,25 +1,9 @@
-[project]
-name = "cage"
-version = "0.1.0"
-description = "Voronoi cell visualization and rod-style geometry experiments"
-readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-    "matplotlib>=3.10.8",
-    "numpy-stl>=3.2.0",
-    "scipy>=1.17.1",
-    "sfepy>=2025.4",
+[tool.uv.workspace]
+members = [
+    "packages/helix-voronoi",
+    "packages/topopt-backfill",
 ]
 
-[project.scripts]
-cage = "cage.cli:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.uv]
-package = true
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/cage"]
+[tool.uv.sources]
+helix-voronoi = { workspace = true }
+topopt-backfill = { workspace = true }

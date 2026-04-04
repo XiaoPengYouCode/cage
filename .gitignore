@@ -15,3 +15,6 @@ wheels/
 # Large generated assets
 *.stl
 *.rrd
+
+# Large local-only datasets
+/datasets/topopt/fake_density_annular_cylinder_full.npz

@@ -8,11 +8,11 @@ from pathlib import Path
 
 import numpy as np
 
-from cage.analysis.compression import solve_compression
-from cage.analysis.config import CompressionConfig, MaterialConfig
-from cage.analysis.geometry import SegmentCloud
-from cage.analysis.voxel import VoxelGrid, build_hex_mesh
-from cage.cli import main
+from helix_voronoi.analysis.compression import solve_compression
+from helix_voronoi.analysis.config import CompressionConfig, MaterialConfig
+from helix_voronoi.analysis.geometry import SegmentCloud
+from helix_voronoi.analysis.voxel import VoxelGrid, build_hex_mesh
+from helix_voronoi.cli import main
 
 
 class GeometryMembershipTest(unittest.TestCase):

@@ -8,7 +8,7 @@
 
 ### 1. 新增独立分析子系统
 
-新增 `cage/analysis/`，与现有绘图/几何代码解耦，包含：
+新增 `packages/helix-voronoi/src/helix_voronoi/analysis/`，与现有绘图/几何代码解耦，包含：
 
 - `config.py`：分析配置 dataclass，固定本次默认值
 - `geometry.py`：把当前直杆/螺旋杆几何转换成“可求解的实体域表示”
@@ -54,7 +54,7 @@
 
 新增 CLI 子命令，避免分析逻辑继续塞进绘图入口：
 
-- `uv run cage modulus --seed 55 --style both`
+- `uv run helix-voronoi modulus --seed 55 --style both`
 - 默认只做 `Seed 55`，默认同时输出 `cylinder` 和 `helix`
 - 默认结果写到：
   - `docs/analysis/modulus_seed55.md`

@@ -4,13 +4,13 @@ import unittest
 
 import numpy as np
 
-from cage.helix import (
+from helix_voronoi.helix import (
     HelixSpec,
     build_helix_centerline,
     build_tangents,
     build_tube_mesh,
 )
-from cage.rods import segment_frame
+from helix_voronoi.rods import segment_frame
 
 
 class HelixGeometryTest(unittest.TestCase):
