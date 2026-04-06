@@ -85,7 +85,7 @@ def parse_args() -> argparse.Namespace:
         "npz_path",
         type=Path,
         nargs="?",
-        default=Path("datasets/voxel/voxel_annular_cylinder_1000x1000x400.npz"),
+        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x200.npz"),
         help="Path to the NPZ file.",
     )
     parser.add_argument(
@@ -97,7 +97,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("docs/assets/voxel_annular_cylinder_1000x1000x400.png"),
+        default=Path("docs/assets/voxel_annular_cylinder_200x200x200.png"),
         help="Optional image output path.",
     )
     parser.add_argument(

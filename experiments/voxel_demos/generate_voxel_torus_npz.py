@@ -28,10 +28,10 @@ def build_annular_cylinder_chunk(
 
 def generate_annular_cylinder_npz(
     output_path: Path,
-    xy_size: int = 1000,
-    z_size: int = 400,
-    outer_radius: float = 360.0,
-    inner_radius: float = 180.0,
+    xy_size: int = 200,
+    z_size: int = 200,
+    outer_radius: float = 72.0,
+    inner_radius: float = 36.0,
     chunk_depth: int = 8,
 ) -> None:
     if xy_size <= 0 or z_size <= 0:
@@ -95,31 +95,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("datasets/voxel/voxel_annular_cylinder_1000x1000x400.npz"),
+        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x200.npz"),
         help="Output NPZ path.",
     )
     parser.add_argument(
         "--xy-size",
         type=int,
-        default=1000,
+        default=200,
         help="Grid size in x and y.",
     )
     parser.add_argument(
         "--z-size",
         type=int,
-        default=400,
+        default=200,
         help="Grid size in z.",
     )
     parser.add_argument(
         "--outer-radius",
         type=float,
-        default=360.0,
+        default=72.0,
         help="Outer radius of the annular cylinder in voxel units.",
     )
     parser.add_argument(
         "--inner-radius",
         type=float,
-        default=180.0,
+        default=36.0,
         help="Inner radius of the annular cylinder in voxel units.",
     )
     parser.add_argument(
