@@ -8,6 +8,11 @@ import numpy as np
 
 from scipy.io import savemat
 
+from topopt_sampling.demo import (
+    generate_annular_cylinder_npz,
+    generate_fake_density_result,
+    render_sampling_overview,
+)
 from topopt_sampling.probability import sample_seed_points
 from topopt_sampling.workflows import map_density_to_seed_mapping
 
@@ -62,6 +67,60 @@ class SeedMappingWorkflowTest(unittest.TestCase):
             )
             self.assertTrue(mapping_npz.exists())
             self.assertEqual(mapping.seed_points.shape, (32, 3))
+
+
+class DemoWorkflowTest(unittest.TestCase):
+    def test_generate_voxels_writes_expected_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_npz = Path(temp_dir) / "voxels.npz"
+            generate_annular_cylinder_npz(
+                output_path=output_npz,
+                xy_size=12,
+                z_size=6,
+                outer_radius=6.0,
+                inner_radius=2.0,
+                chunk_depth=2,
+            )
+
+            with np.load(output_npz) as data:
+                voxels = data["voxels"]
+                self.assertEqual(voxels.shape, (12, 12, 6))
+                self.assertGreater(int(voxels.sum()), 0)
+
+    def test_generate_fake_density_and_render_overview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            voxel_npz = temp_path / "voxels.npz"
+            density_npz = temp_path / "density.npz"
+            mapping_npz = temp_path / "mapping.npz"
+            overview_png = temp_path / "overview.png"
+
+            generate_annular_cylinder_npz(
+                output_path=voxel_npz,
+                xy_size=12,
+                z_size=6,
+                outer_radius=6.0,
+                inner_radius=2.0,
+                chunk_depth=2,
+            )
+            generate_fake_density_result(
+                source_npz=voxel_npz,
+                output_npz=density_npz,
+                chunk_depth=2,
+            )
+            mapping = map_density_to_seed_mapping(
+                density_npz,
+                mapping_npz,
+                num_seeds=24,
+            )
+            render_sampling_overview(
+                density_npz=density_npz,
+                seed_npz=mapping.output_npz,
+                output_png=overview_png,
+            )
+
+            self.assertTrue(density_npz.exists())
+            self.assertTrue(overview_png.exists())
 
 
 if __name__ == "__main__":

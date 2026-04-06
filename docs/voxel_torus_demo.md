@@ -2,14 +2,14 @@
 
 当前体素 demo 默认使用 `200 x 200 x 80` 的中空圆柱体，只负责生成拓扑采样链路的输入几何。
 
-相关脚本：
+相关命令：
 
-- `experiments/voxel_demos/generate_voxel_torus_npz.py`
+- `topopt-sampling generate-voxels`
 
 ## 生成体素输入
 
 ```bash
-uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
+uv run topopt-sampling generate-voxels \
   --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
   --z-size 80 \
