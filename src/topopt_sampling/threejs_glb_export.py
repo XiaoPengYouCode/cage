@@ -11,7 +11,6 @@ import matplotlib.tri as mtri
 import numpy as np
 from matplotlib import colors as mcolors
 
-from topopt_sampling.exact_brep import build_delaunay_neighbor_map
 from topopt_sampling.exact_restricted_voronoi_3d import AnnularCylinderDomain, build_exact_restricted_voronoi_diagram
 from topopt_sampling.hybrid_exact_brep import (
     ExactCircleArc,
@@ -536,9 +535,8 @@ def _shell_cells(diagram_brep: HybridExactDiagramBRep) -> list[HybridExactCellBR
 
 def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDomain) -> tuple[bytes, ThreeJSGLBExportSummary]:
     diagram = build_exact_restricted_voronoi_diagram(seed_points=seed_points, domain=domain, include_support_traces=False)
-    neighbor_map = build_delaunay_neighbor_map(diagram.seed_points)
     cells = tuple(
-        build_hybrid_exact_cell_brep(cell, diagram, neighbor_map.get(int(cell.seed_id), tuple()))
+        build_hybrid_exact_cell_brep(cell, diagram, cell.neighboring_seed_ids)
         for cell in diagram.cells
     )
     diagram_brep = HybridExactDiagramBRep(cells=cells)

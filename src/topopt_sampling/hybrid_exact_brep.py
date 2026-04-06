@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
 import math
@@ -9,7 +10,6 @@ from typing import Callable, Iterable
 
 import numpy as np
 
-from topopt_sampling.exact_brep import build_delaunay_neighbor_map
 from topopt_sampling.exact_restricted_voronoi_3d import (
     AnnularCylinderDomain,
     ExactRestrictedCell,
@@ -258,6 +258,48 @@ def _point_in_plane_supports(point: np.ndarray, supports: Iterable[PlaneSupport]
     return True
 
 
+def _points_in_plane_supports(points: np.ndarray, supports: Iterable[PlaneSupport], tol: float = _TOL) -> np.ndarray:
+    points = np.asarray(points, dtype=np.float64)
+    supports = tuple(supports)
+    if len(points) == 0:
+        return np.zeros((0,), dtype=bool)
+    if not supports:
+        return np.ones(points.shape[0], dtype=bool)
+    normals = np.asarray([support.normal for support in supports], dtype=np.float64)
+    rhs = np.asarray([support.rhs for support in supports], dtype=np.float64)
+    return np.all(points @ normals.T - rhs[None, :] <= tol, axis=1)
+
+
+def _points_in_trim_supports(points: np.ndarray, supports: Iterable[Support], domain: AnnularCylinderDomain, tol: float = _TOL) -> np.ndarray:
+    points = np.asarray(points, dtype=np.float64)
+    supports = tuple(supports)
+    mask = domain.contains_points(points, tol=tol)
+    if not np.any(mask):
+        return mask
+    plane_supports = tuple(support for support in supports if isinstance(support, PlaneSupport))
+    if plane_supports:
+        local_points = points[mask]
+        local_mask = _points_in_plane_supports(local_points, plane_supports, tol=tol)
+        mask[mask] = local_mask
+    if not np.any(mask):
+        return mask
+    for support in supports:
+        if isinstance(support, PlaneSupport):
+            continue
+        active_points = points[mask]
+        radial = np.hypot(active_points[:, 0] - support.center_xy[0], active_points[:, 1] - support.center_xy[1])
+        if support.key == "outer_cylinder":
+            local_mask = radial - support.radius <= tol
+        elif support.key == "inner_cylinder":
+            local_mask = support.radius - radial <= tol
+        else:
+            local_mask = np.abs(radial - support.radius) <= tol
+        mask[mask] = local_mask
+        if not np.any(mask):
+            break
+    return mask
+
+
 def _on_support(point: np.ndarray, support: Support, tol: float = 1e-6) -> bool:
     if isinstance(support, PlaneSupport):
         return abs(float(np.dot(support.normal, point) - support.rhs)) <= tol
@@ -322,21 +364,84 @@ def _quantize_point(point: np.ndarray, scale: float = 1e8) -> tuple[int, int, in
     return tuple(int(round(float(value) * scale)) for value in point)
 
 
+def _points_on_support(points: np.ndarray, support: Support, tol: float = 1e-6) -> np.ndarray:
+    points = np.asarray(points, dtype=np.float64)
+    if isinstance(support, PlaneSupport):
+        return np.abs(points @ support.normal - support.rhs) <= tol
+    radial = np.hypot(points[:, 0] - support.center_xy[0], points[:, 1] - support.center_xy[1])
+    return np.abs(radial - support.radius) <= tol
+
+
+def _batched_plane_triple_candidates(plane_supports: tuple[PlaneSupport, ...]) -> list[tuple[np.ndarray, tuple[str, ...]]]:
+    if len(plane_supports) < 3:
+        return []
+    plane_triples = list(combinations(range(len(plane_supports)), 3))
+    if not plane_triples:
+        return []
+    matrices = np.asarray([[plane_supports[idx].normal for idx in triple] for triple in plane_triples], dtype=np.float64)
+    rhs = np.asarray([[plane_supports[idx].rhs for idx in triple] for triple in plane_triples], dtype=np.float64)
+    valid = np.abs(np.linalg.det(matrices)) > 1e-12
+    if not np.any(valid):
+        return []
+    solved = np.linalg.solve(matrices[valid], rhs[valid][..., None]).squeeze(-1)
+    valid_triples = [plane_triples[idx] for idx, keep in enumerate(valid.tolist()) if keep]
+    return [
+        (
+            solved[result_index].astype(np.float64),
+            tuple(sorted(plane_supports[idx].key for idx in triple)),
+        )
+        for result_index, triple in enumerate(valid_triples)
+    ]
+
+
+def _plane_pair_cylinder_candidates(
+    plane_supports: tuple[PlaneSupport, ...],
+    cylinder_supports: tuple[CylinderSupport, ...],
+) -> list[tuple[np.ndarray, tuple[str, ...]]]:
+    candidates: list[tuple[np.ndarray, tuple[str, ...]]] = []
+    if len(plane_supports) < 2 or not cylinder_supports:
+        return candidates
+    for left_idx, right_idx in combinations(range(len(plane_supports)), 2):
+        line = _line_from_two_planes(plane_supports[left_idx], plane_supports[right_idx])
+        if line is None:
+            continue
+        for cylinder in cylinder_supports:
+            for point in _intersect_line_with_cylinder(line[0], line[1], cylinder):
+                candidates.append(
+                    (
+                        point.astype(np.float64),
+                        tuple(sorted((plane_supports[left_idx].key, plane_supports[right_idx].key, cylinder.key))),
+                    )
+                )
+    return candidates
+
+
 def _build_vertices(
     supports: tuple[Support, ...],
     contains_point: Callable[[np.ndarray], bool],
+    contains_points: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[ExactVertex, ...]:
+    plane_supports = tuple(support for support in supports if isinstance(support, PlaneSupport))
+    cylinder_supports = tuple(support for support in supports if isinstance(support, CylinderSupport))
+    candidates = _batched_plane_triple_candidates(plane_supports)
+    candidates.extend(_plane_pair_cylinder_candidates(plane_supports, cylinder_supports))
+    if not candidates:
+        return tuple()
+
+    candidate_points = np.asarray([point for point, _ in candidates], dtype=np.float64)
+    contains_mask = contains_points(candidate_points) if contains_points is not None else np.asarray([contains_point(point) for point in candidate_points], dtype=bool)
+
+    support_lookup = _support_by_key(supports)
     keyed: dict[tuple[int, int, int], ExactVertex] = {}
-    for triple in combinations(supports, 3):
-        solutions = _solve_triple_intersection((triple[0], triple[1], triple[2]))
-        for point in solutions:
-            if not all(_on_support(point, support) for support in triple):
-                continue
-            if not contains_point(point):
-                continue
-            key = _quantize_point(point)
-            support_keys = tuple(sorted(support.key for support in triple))
-            keyed[key] = ExactVertex(vertex_id=-1, point=point, support_keys=support_keys)
+    for candidate_index, (point, support_keys) in enumerate(candidates):
+        if not contains_mask[candidate_index]:
+            continue
+        triple_supports = tuple(support_lookup[support_key] for support_key in support_keys)
+        if not all(_on_support(point, support) for support in triple_supports):
+            continue
+        key = _quantize_point(point)
+        keyed[key] = ExactVertex(vertex_id=-1, point=point, support_keys=support_keys)
+
     vertices: list[ExactVertex] = []
     for vertex_id, key in enumerate(sorted(keyed)):
         vertex = keyed[key]
@@ -544,7 +649,8 @@ def build_polyhedral_voronoi_cell(
 ) -> PolyhedralVoronoiCell:
     supports = tuple([_plane_support_for_neighbor(cell, diagram, n) for n in neighbor_seed_ids] + list(_box_supports(diagram.domain)))
     contains_point = lambda point: _point_in_plane_supports(point, supports, tol=1e-6)
-    vertices = _build_vertices(supports, contains_point)
+    contains_points = lambda points: _points_in_plane_supports(points, supports, tol=1e-6)
+    vertices = _build_vertices(supports, contains_point, contains_points)
     edges = _build_edges(supports, vertices, contains_point)
     active_support_keys = {support_key for edge in edges for support_key in edge.support_keys}
     active_supports = tuple(support for support in supports if support.key in active_support_keys)
@@ -630,7 +736,8 @@ def trim_polyhedral_cell_with_annular_cylinder(
 ) -> TrimmedAnnularCell:
     supports = _build_trim_supports(polyhedral_cell, diagram)
     contains_point = lambda point: _point_in_trim_supports(point, supports, diagram.domain, tol=1e-6)
-    vertices = _build_vertices(supports, contains_point)
+    contains_points = lambda points: _points_in_trim_supports(points, supports, diagram.domain, tol=1e-6)
+    vertices = _build_vertices(supports, contains_point, contains_points)
     edges = _build_edges(supports, vertices, contains_point)
     faces = _build_exact_faces(cell.seed_id, supports, edges)
     active_support_keys = {face.support_key for face in faces}
@@ -673,14 +780,20 @@ def build_hybrid_exact_diagram_brep(
     seed_points: np.ndarray,
     domain: AnnularCylinderDomain,
     seed_ids: Iterable[int] | None = None,
+    max_workers: int | None = None,
 ) -> HybridExactDiagramBRep:
     diagram = build_exact_restricted_voronoi_diagram(seed_points=seed_points, domain=domain, include_support_traces=False)
-    neighbor_map = build_delaunay_neighbor_map(diagram.seed_points)
-    selected = list(seed_ids) if seed_ids is not None else list(range(len(diagram.cells)))
-    cells = tuple(
-        build_hybrid_exact_cell_brep(diagram.cells[int(seed_id)], diagram, neighbor_map.get(int(seed_id), tuple()))
-        for seed_id in selected
-    )
+    selected = [int(seed_id) for seed_id in seed_ids] if seed_ids is not None else list(range(len(diagram.cells)))
+
+    def _build_one(seed_id: int) -> HybridExactCellBRep:
+        cell = diagram.cells[seed_id]
+        return build_hybrid_exact_cell_brep(cell, diagram, cell.neighboring_seed_ids)
+
+    if max_workers is not None and max_workers > 1 and len(selected) > 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            cells = tuple(executor.map(_build_one, selected))
+    else:
+        cells = tuple(_build_one(seed_id) for seed_id in selected)
     return HybridExactDiagramBRep(cells=cells)
 
 

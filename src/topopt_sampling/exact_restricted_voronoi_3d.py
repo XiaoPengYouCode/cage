@@ -12,6 +12,7 @@ from topopt_sampling.exact_voronoi import (
     discover_cap_candidates,
     discover_cylinder_candidates,
 )
+from topopt_sampling.neighbors import build_delaunay_neighbor_map
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,8 @@ class ExactRestrictedCell:
     seed_point: np.ndarray
     halfspaces: tuple[VoronoiHalfspace, ...]
     support_traces: tuple[SupportTraceSet, ...] = field(default_factory=tuple)
+    halfspace_normals: np.ndarray = field(default_factory=lambda: np.empty((0, 3), dtype=np.float64), repr=False)
+    halfspace_rhs: np.ndarray = field(default_factory=lambda: np.empty((0,), dtype=np.float64), repr=False)
 
     @property
     def support_trace_count(self) -> int:
@@ -93,22 +96,18 @@ class ExactRestrictedCell:
         point = np.asarray(point, dtype=np.float64)
         if not domain.contains_point(point, tol=tol):
             return False
-        for halfspace in self.halfspaces:
-            if not halfspace.contains_point(point, tol=tol):
-                return False
-        return True
+        if self.halfspace_normals.size == 0:
+            return True
+        values = self.halfspace_normals @ point - self.halfspace_rhs
+        return bool(np.all(values <= tol))
 
     def contains_points(self, points: np.ndarray, domain: AnnularCylinderDomain, tol: float = 1e-9) -> np.ndarray:
         points = np.asarray(points, dtype=np.float64)
         mask = domain.contains_points(points, tol=tol)
-        if not np.any(mask):
+        if not np.any(mask) or self.halfspace_normals.size == 0:
             return mask
-        for halfspace in self.halfspaces:
-            local_mask = np.zeros_like(mask)
-            local_mask[mask] = halfspace.contains_points(points[mask], tol=tol)
-            mask &= local_mask
-            if not np.any(mask):
-                break
+        inside_values = points[mask] @ self.halfspace_normals.T - self.halfspace_rhs[None, :]
+        mask[mask] = np.all(inside_values <= tol, axis=1)
         return mask
 
 
@@ -155,13 +154,21 @@ def build_annular_cylinder_domain(
     )
 
 
-def build_voronoi_halfspaces(seed_points: np.ndarray, seed_id: int) -> tuple[VoronoiHalfspace, ...]:
+def build_voronoi_halfspaces(
+    seed_points: np.ndarray,
+    seed_id: int,
+    neighbor_seed_ids: Iterable[int] | None = None,
+) -> tuple[VoronoiHalfspace, ...]:
     seed_points = np.asarray(seed_points, dtype=np.float64)
     seed_i = seed_points[int(seed_id)]
+    other_seed_ids = (
+        [int(other_seed_id) for other_seed_id in neighbor_seed_ids if int(other_seed_id) != int(seed_id)]
+        if neighbor_seed_ids is not None
+        else [other_seed_id for other_seed_id in range(seed_points.shape[0]) if other_seed_id != int(seed_id)]
+    )
     halfspaces: list[VoronoiHalfspace] = []
-    for other_seed_id, seed_j in enumerate(seed_points):
-        if other_seed_id == int(seed_id):
-            continue
+    for other_seed_id in other_seed_ids:
+        seed_j = seed_points[int(other_seed_id)]
         normal = 2.0 * (seed_j - seed_i)
         rhs = float(np.dot(seed_j, seed_j) - np.dot(seed_i, seed_i))
         halfspaces.append(
@@ -283,14 +290,22 @@ def build_exact_restricted_cell(
     domain: AnnularCylinderDomain,
     seed_id: int,
     include_support_traces: bool = False,
+    neighbor_seed_ids: Iterable[int] | None = None,
 ) -> ExactRestrictedCell:
     seed_points = np.asarray(seed_points, dtype=np.float64)
     support_traces = build_support_traces_for_cell(seed_points, domain, seed_id) if include_support_traces else tuple()
+    halfspaces = build_voronoi_halfspaces(seed_points, seed_id, neighbor_seed_ids=neighbor_seed_ids)
+    halfspace_normals = np.asarray([halfspace.normal for halfspace in halfspaces], dtype=np.float64)
+    if halfspace_normals.size == 0:
+        halfspace_normals = np.empty((0, 3), dtype=np.float64)
+    halfspace_rhs = np.asarray([halfspace.rhs for halfspace in halfspaces], dtype=np.float64)
     return ExactRestrictedCell(
         seed_id=int(seed_id),
         seed_point=seed_points[int(seed_id)].astype(np.float64, copy=True),
-        halfspaces=build_voronoi_halfspaces(seed_points, seed_id),
+        halfspaces=halfspaces,
         support_traces=support_traces,
+        halfspace_normals=halfspace_normals,
+        halfspace_rhs=halfspace_rhs,
     )
 
 
@@ -300,12 +315,14 @@ def build_exact_restricted_voronoi_diagram(
     include_support_traces: bool = False,
 ) -> ExactRestrictedVoronoiDiagram:
     seed_points = np.asarray(seed_points, dtype=np.float64)
+    neighbor_map = build_delaunay_neighbor_map(seed_points)
     cells = tuple(
         build_exact_restricted_cell(
             seed_points=seed_points,
             domain=domain,
             seed_id=seed_id,
             include_support_traces=include_support_traces,
+            neighbor_seed_ids=neighbor_map.get(seed_id),
         )
         for seed_id in range(seed_points.shape[0])
     )

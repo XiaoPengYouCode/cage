@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import numpy as np
-from scipy.spatial import Delaunay, cKDTree
+from scipy.spatial import cKDTree
 
 from topopt_sampling.exact_restricted_voronoi_3d import (
     AnnularCylinderDomain,
@@ -70,35 +70,6 @@ class DiagramBRepSummary:
     num_edges: int
     num_vertices: int
     unmatched_loops: int
-
-
-def build_delaunay_neighbor_map(seed_points: np.ndarray) -> dict[int, tuple[int, ...]]:
-    seed_points = np.asarray(seed_points, dtype=np.float64)
-    if len(seed_points) == 0:
-        return {}
-    if len(seed_points) == 1:
-        return {0: tuple()}
-    if len(seed_points) < 5:
-        return {
-            idx: tuple(sorted(jdx for jdx in range(seed_points.shape[0]) if jdx != idx))
-            for idx in range(seed_points.shape[0])
-        }
-
-    neighbors: dict[int, set[int]] = {idx: set() for idx in range(seed_points.shape[0])}
-    try:
-        delaunay = Delaunay(seed_points, qhull_options="QJ")
-        for simplex in delaunay.simplices:
-            simplex = [int(v) for v in simplex]
-            for i, left in enumerate(simplex):
-                for right in simplex[i + 1 :]:
-                    neighbors[left].add(right)
-                    neighbors[right].add(left)
-    except Exception:
-        return {
-            idx: tuple(sorted(jdx for jdx in range(seed_points.shape[0]) if jdx != idx))
-            for idx in range(seed_points.shape[0])
-        }
-    return {seed_id: tuple(sorted(values)) for seed_id, values in neighbors.items()}
 
 
 def _extract_contours(x_grid: np.ndarray, y_grid: np.ndarray, mask: np.ndarray) -> list[np.ndarray]:
@@ -435,13 +406,12 @@ def build_diagram_brep(
     seed_ids: Iterable[int] | None = None,
 ) -> DiagramBRep:
     diagram = build_exact_restricted_voronoi_diagram(seed_points=seed_points, domain=domain)
-    neighbor_map = build_delaunay_neighbor_map(diagram.seed_points)
     selected = list(seed_ids) if seed_ids is not None else list(range(len(diagram.cells)))
     cells = tuple(
         build_cell_brep(
             cell=diagram.cells[int(seed_id)],
             diagram=diagram,
-            neighbor_seed_ids=neighbor_map.get(int(seed_id), tuple()),
+            neighbor_seed_ids=diagram.cells[int(seed_id)].neighboring_seed_ids,
         )
         for seed_id in selected
     )
