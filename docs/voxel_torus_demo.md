@@ -1,6 +1,6 @@
 # Voxel Annular Cylinder Demo
 
-当前体素 demo 默认使用 `200 x 200 x 200` 的中空圆柱体。
+当前体素 demo 默认使用 `200 x 200 x 80` 的中空圆柱体。
 
 相关脚本：
 
@@ -11,9 +11,9 @@
 
 ```bash
 uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
-  --output datasets/voxel/voxel_annular_cylinder_200x200x200.npz \
+  --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
-  --z-size 200 \
+  --z-size 80 \
   --outer-radius 72 \
   --inner-radius 36
 ```
@@ -21,15 +21,15 @@ uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
 默认输出：
 
 ```text
-datasets/voxel/voxel_annular_cylinder_200x200x200.npz
+datasets/voxel/voxel_annular_cylinder_200x200x80.npz
 ```
 
 ## 可视化体素输入
 
 ```bash
 uv run python experiments/voxel_demos/visualize_voxel_torus_npz.py \
-  datasets/voxel/voxel_annular_cylinder_200x200x200.npz \
-  --output docs/assets/voxel_annular_cylinder_200x200x200.png
+  datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --output docs/assets/voxel_annular_cylinder_200x200x80.png
 ```
 
 如果需要弹出窗口：

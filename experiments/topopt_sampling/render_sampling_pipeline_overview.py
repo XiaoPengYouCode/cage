@@ -114,7 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--density-npz",
         type=Path,
-        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x200.npz"),
+        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x80.npz"),
     )
     parser.add_argument(
         "--seed-npz",

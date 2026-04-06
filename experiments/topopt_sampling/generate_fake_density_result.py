@@ -119,13 +119,13 @@ def parse_args() -> argparse.Namespace:
         "source_npz",
         type=Path,
         nargs="?",
-        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x200.npz"),
+        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x80.npz"),
         help="Source voxel geometry NPZ.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x200.npz"),
+        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x80.npz"),
         help="Output fake density result NPZ.",
     )
     parser.add_argument(

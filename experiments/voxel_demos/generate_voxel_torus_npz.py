@@ -29,7 +29,7 @@ def build_annular_cylinder_chunk(
 def generate_annular_cylinder_npz(
     output_path: Path,
     xy_size: int = 200,
-    z_size: int = 200,
+    z_size: int = 80,
     outer_radius: float = 72.0,
     inner_radius: float = 36.0,
     chunk_depth: int = 8,
@@ -95,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x200.npz"),
+        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x80.npz"),
         help="Output NPZ path.",
     )
     parser.add_argument(
@@ -107,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--z-size",
         type=int,
-        default=200,
+        default=80,
         help="Grid size in z.",
     )
     parser.add_argument(

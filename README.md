@@ -57,14 +57,14 @@ CLI：
 
 ```bash
 uv run topopt-sampling sample-seeds \
-  datasets/topopt/fake_density_annular_cylinder_200x200x200.npz \
+  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --num-seeds 2000 \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
 示意图：
 
-![Fake Density Result](docs/assets/fake_density_annular_cylinder_200x200x200.png)
+![Fake Density Result](docs/assets/fake_density_annular_cylinder_200x200x80.png)
 
 ---
 
@@ -100,15 +100,15 @@ seed = voxel_index + uniform_jitter
 
 ## Demo Workflow
 
-仓库默认不提交新的 `200x200x200` demo 输入数据，所以推荐先按下面顺序生成。
+仓库默认不提交新的 `200x200x80` demo 输入数据，所以推荐先按下面顺序生成。
 
 ### A. 生成中空圆柱体素输入
 
 ```bash
 uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
-  --output datasets/voxel/voxel_annular_cylinder_200x200x200.npz \
+  --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
-  --z-size 200 \
+  --z-size 80 \
   --outer-radius 72 \
   --inner-radius 36
 ```
@@ -117,15 +117,15 @@ uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
 
 ```bash
 uv run python experiments/topopt_sampling/generate_fake_density_result.py \
-  datasets/voxel/voxel_annular_cylinder_200x200x200.npz \
-  --output datasets/topopt/fake_density_annular_cylinder_200x200x200.npz
+  datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
 ```
 
 ### C. 从密度场采样随机种子点
 
 ```bash
 uv run topopt-sampling sample-seeds \
-  datasets/topopt/fake_density_annular_cylinder_200x200x200.npz \
+  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --num-seeds 2000 \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
@@ -134,7 +134,7 @@ uv run topopt-sampling sample-seeds \
 
 ```bash
 uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
-  --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x200.npz \
+  --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
   --output docs/assets/topopt_sampling_pipeline_overview.png
 ```
@@ -143,8 +143,8 @@ uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
 
 ```bash
 uv run python experiments/topopt_sampling/visualize_fake_density_result.py \
-  datasets/topopt/fake_density_annular_cylinder_200x200x200.npz \
-  --output docs/assets/fake_density_annular_cylinder_200x200x200.png
+  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --output docs/assets/fake_density_annular_cylinder_200x200x80.png
 ```
 
 ---

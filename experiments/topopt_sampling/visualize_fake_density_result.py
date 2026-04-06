@@ -106,7 +106,7 @@ def parse_args() -> argparse.Namespace:
         "result_npz",
         type=Path,
         nargs="?",
-        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x200.npz"),
+        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x80.npz"),
         help="Fake density result NPZ.",
     )
     parser.add_argument(
@@ -118,7 +118,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("docs/assets/fake_density_annular_cylinder_200x200x200.png"),
+        default=Path("docs/assets/fake_density_annular_cylinder_200x200x80.png"),
         help="Output image path.",
     )
     parser.add_argument(

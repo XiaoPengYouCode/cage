@@ -21,7 +21,7 @@ def build_sample_seeds_parser() -> argparse.ArgumentParser:
         "input_npz",
         type=Path,
         nargs="?",
-        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x200.npz"),
+        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x80.npz"),
         help="Topology density input (.npz or .mat).",
     )
     parser.add_argument("--num-seeds", type=int, default=2_000)
