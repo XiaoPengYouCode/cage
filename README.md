@@ -62,6 +62,15 @@ uv run topopt-sampling sample-seeds \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
+也可以直接使用 Matlab `.mat` 输入：
+
+```bash
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/example_fake_density_annular_cylinder_200x200x80.mat \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
+```
+
 ---
 
 ## 数学思路
@@ -98,12 +107,12 @@ seed = voxel_index + uniform_jitter
 
 ## Demo Workflow
 
-仓库默认不提交新的 `200x200x80` demo 输入数据，所以推荐先按下面顺序生成。
+仓库默认不提交新的 `200x200x80` demo 输入数据，所以推荐直接走 `topopt-sampling` 的正式命令链。
 
 ### A. 生成中空圆柱体素输入
 
 ```bash
-uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
+uv run topopt-sampling generate-voxels \
   --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
   --z-size 80 \
@@ -114,7 +123,7 @@ uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
 ### B. 生成假的拓扑优化密度结果
 
 ```bash
-uv run python experiments/topopt_sampling/generate_fake_density_result.py \
+uv run topopt-sampling generate-fake-density \
   datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
 ```
@@ -128,10 +137,25 @@ uv run topopt-sampling sample-seeds \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
-### D. 生成总览图
+如果要验证 `.mat` 输入：
 
 ```bash
-uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/example_fake_density_annular_cylinder_200x200x80.mat \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
+```
+
+### D. 生成总览图
+
+总览图现在包含 4 个 panel：
+- 1) 密度场
+- 2) 概率场
+- 3) 2000 个随机种子点
+- 4) 连续中空圆柱边界上的 3D Voronoi 表面分块图
+
+```bash
+uv run topopt-sampling render-overview \
   --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
   --output docs/assets/topopt_sampling_pipeline_overview.png
@@ -144,11 +168,7 @@ uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
 ```text
 src/
   helix_voronoi/      # 几何生成、渲染、STL、分析
-  topopt_sampling/    # density -> probability -> random seeds 工作流
-
-experiments/
-  topopt_sampling/    # density / probability / seed 相关实验脚本
-  voxel_demos/        # 体素 demo
+  topopt_sampling/    # density/demo -> probability -> random seeds 工作流
 
 datasets/
   topopt/             # 拓扑优化链路输入与中间结果
@@ -170,5 +190,7 @@ uv run python -m unittest discover -s tests -v
 
 ## Related Docs
 
+- `docs/how_to_start.md`
 - `docs/analysis/modulus-plan.md`
+- `docs/plan/restricted-voronoi-3d-blocks-plan.md`
 - `docs/voxel_torus_demo.md`
