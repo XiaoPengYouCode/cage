@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 import json
 import math
 from itertools import combinations
@@ -372,23 +373,33 @@ def _points_on_support(points: np.ndarray, support: Support, tol: float = 1e-6) 
     return np.abs(radial - support.radius) <= tol
 
 
+@lru_cache(maxsize=None)
+def _combination_index_array(size: int, choose: int) -> np.ndarray:
+    if choose <= 0 or size < choose:
+        return np.empty((0, choose), dtype=np.int32)
+    return np.asarray(list(combinations(range(size), choose)), dtype=np.int32)
+
+
 def _batched_plane_triple_candidates(plane_supports: tuple[PlaneSupport, ...]) -> list[tuple[np.ndarray, tuple[str, ...]]]:
     if len(plane_supports) < 3:
         return []
-    plane_triples = list(combinations(range(len(plane_supports)), 3))
-    if not plane_triples:
+    triple_indices = _combination_index_array(len(plane_supports), 3)
+    if triple_indices.size == 0:
         return []
-    matrices = np.asarray([[plane_supports[idx].normal for idx in triple] for triple in plane_triples], dtype=np.float64)
-    rhs = np.asarray([[plane_supports[idx].rhs for idx in triple] for triple in plane_triples], dtype=np.float64)
+    normals = np.asarray([support.normal for support in plane_supports], dtype=np.float64)
+    rhs_all = np.asarray([support.rhs for support in plane_supports], dtype=np.float64)
+    support_keys = tuple(support.key for support in plane_supports)
+    matrices = normals[triple_indices]
+    rhs = rhs_all[triple_indices]
     valid = np.abs(np.linalg.det(matrices)) > 1e-12
     if not np.any(valid):
         return []
     solved = np.linalg.solve(matrices[valid], rhs[valid][..., None]).squeeze(-1)
-    valid_triples = [plane_triples[idx] for idx, keep in enumerate(valid.tolist()) if keep]
+    valid_triples = triple_indices[valid]
     return [
         (
             solved[result_index].astype(np.float64),
-            tuple(sorted(plane_supports[idx].key for idx in triple)),
+            tuple(sorted((support_keys[int(triple[0])], support_keys[int(triple[1])], support_keys[int(triple[2])]))),
         )
         for result_index, triple in enumerate(valid_triples)
     ]
@@ -398,21 +409,66 @@ def _plane_pair_cylinder_candidates(
     plane_supports: tuple[PlaneSupport, ...],
     cylinder_supports: tuple[CylinderSupport, ...],
 ) -> list[tuple[np.ndarray, tuple[str, ...]]]:
-    candidates: list[tuple[np.ndarray, tuple[str, ...]]] = []
     if len(plane_supports) < 2 or not cylinder_supports:
-        return candidates
-    for left_idx, right_idx in combinations(range(len(plane_supports)), 2):
-        line = _line_from_two_planes(plane_supports[left_idx], plane_supports[right_idx])
-        if line is None:
+        return []
+
+    pair_indices = _combination_index_array(len(plane_supports), 2)
+    if pair_indices.size == 0:
+        return []
+
+    normals = np.asarray([support.normal for support in plane_supports], dtype=np.float64)
+    rhs_all = np.asarray([support.rhs for support in plane_supports], dtype=np.float64)
+    support_keys = tuple(support.key for support in plane_supports)
+
+    left_normals = normals[pair_indices[:, 0]]
+    right_normals = normals[pair_indices[:, 1]]
+    directions = np.cross(left_normals, right_normals)
+    norms = np.linalg.norm(directions, axis=1)
+    valid_lines = norms > 1e-12
+    if not np.any(valid_lines):
+        return []
+
+    pair_indices = pair_indices[valid_lines]
+    directions = directions[valid_lines] / norms[valid_lines, None]
+    matrices = np.stack((left_normals[valid_lines], right_normals[valid_lines], directions), axis=1)
+    rhs = np.stack((rhs_all[pair_indices[:, 0]], rhs_all[pair_indices[:, 1]], np.zeros(pair_indices.shape[0], dtype=np.float64)), axis=1)
+    try:
+        line_points = np.linalg.solve(matrices, rhs[..., None]).squeeze(-1)
+    except np.linalg.LinAlgError:
+        line_points = (np.linalg.pinv(matrices) @ rhs[..., None]).squeeze(-1)
+
+    candidates: list[tuple[np.ndarray, tuple[str, ...]]] = []
+    for cylinder in cylinder_supports:
+        px = line_points[:, 0] - float(cylinder.center_xy[0])
+        py = line_points[:, 1] - float(cylinder.center_xy[1])
+        dx = directions[:, 0]
+        dy = directions[:, 1]
+        a_value = dx * dx + dy * dy
+        b_value = 2.0 * (px * dx + py * dy)
+        c_value = px * px + py * py - float(cylinder.radius * cylinder.radius)
+        disc = b_value * b_value - 4.0 * a_value * c_value
+        valid_intersections = (a_value > 1e-12) & (disc >= -1e-10)
+        if not np.any(valid_intersections):
             continue
-        for cylinder in cylinder_supports:
-            for point in _intersect_line_with_cylinder(line[0], line[1], cylinder):
-                candidates.append(
-                    (
-                        point.astype(np.float64),
-                        tuple(sorted((plane_supports[left_idx].key, plane_supports[right_idx].key, cylinder.key))),
-                    )
-                )
+        disc = np.maximum(disc[valid_intersections], 0.0)
+        roots = np.sqrt(disc)
+        a_valid = a_value[valid_intersections]
+        b_valid = b_value[valid_intersections]
+        params = np.stack(
+            (
+                (-b_valid - roots) / (2.0 * a_valid),
+                (-b_valid + roots) / (2.0 * a_valid),
+            ),
+            axis=1,
+        )
+        base_points = line_points[valid_intersections]
+        base_dirs = directions[valid_intersections]
+        pair_valid = pair_indices[valid_intersections]
+        intersection_points = base_points[:, None, :] + params[..., None] * base_dirs[:, None, :]
+        for pair, points in zip(pair_valid, intersection_points, strict=False):
+            support_key_triplet = tuple(sorted((support_keys[int(pair[0])], support_keys[int(pair[1])], cylinder.key)))
+            for point in points:
+                candidates.append((point.astype(np.float64), support_key_triplet))
     return candidates
 
 

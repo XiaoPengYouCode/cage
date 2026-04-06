@@ -309,13 +309,13 @@ def build_exact_restricted_cell(
     )
 
 
-def build_exact_restricted_voronoi_diagram(
+def build_exact_restricted_voronoi_diagram_from_neighbor_map(
     seed_points: np.ndarray,
     domain: AnnularCylinderDomain,
+    neighbor_map: dict[int, tuple[int, ...]],
     include_support_traces: bool = False,
 ) -> ExactRestrictedVoronoiDiagram:
     seed_points = np.asarray(seed_points, dtype=np.float64)
-    neighbor_map = build_delaunay_neighbor_map(seed_points)
     cells = tuple(
         build_exact_restricted_cell(
             seed_points=seed_points,
@@ -327,6 +327,21 @@ def build_exact_restricted_voronoi_diagram(
         for seed_id in range(seed_points.shape[0])
     )
     return ExactRestrictedVoronoiDiagram(seed_points=seed_points, domain=domain, cells=cells)
+
+
+def build_exact_restricted_voronoi_diagram(
+    seed_points: np.ndarray,
+    domain: AnnularCylinderDomain,
+    include_support_traces: bool = False,
+) -> ExactRestrictedVoronoiDiagram:
+    seed_points = np.asarray(seed_points, dtype=np.float64)
+    neighbor_map = build_delaunay_neighbor_map(seed_points)
+    return build_exact_restricted_voronoi_diagram_from_neighbor_map(
+        seed_points=seed_points,
+        domain=domain,
+        neighbor_map=neighbor_map,
+        include_support_traces=include_support_traces,
+    )
 
 
 def summarize_exact_diagram(diagram: ExactRestrictedVoronoiDiagram) -> ExactDiagramSummary:

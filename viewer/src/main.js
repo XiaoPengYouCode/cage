@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-const DATA_URL = '/data/hybrid_exact_shell_2000.glb';
+const DATA_URL = '/data/hybrid_exact_shell_2000.glb?v=3';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -58,14 +58,17 @@ let selectedCell = null;
 
 function updateMeta(stats) {
   metaEl.innerHTML = [
+    `Cells: <strong>${stats.numCells}</strong>`,
     `Shell cells: <strong>${stats.numShellCells}</strong>`,
+    `Non-shell cells: <strong>${stats.numNonShellCells}</strong>`,
     `Faces: <strong>${stats.numFaces}</strong>`,
     `Boundaries: <strong>${stats.numBoundaries}</strong>`,
     `Double-click to select block`,
   ].join('<br />');
   badgesEl.innerHTML = `
     <div class="badge">Three.js WebGL</div>
-    <div class="badge">Opaque closed cells</div>
+    <div class="badge">Full Voronoi export</div>
+    <div class="badge">Shell-labeled cells</div>
     <div class="badge">Double-click select</div>
   `;
 }
@@ -115,19 +118,28 @@ function selectCell(cellRecord) {
     line.material.opacity = 1.0;
   }
   cellRecord.group.renderOrder = 10;
-  selectionNoteEl.textContent = `Selected cell seedId=${cellRecord.seedId}`;
+  selectionNoteEl.textContent = `Selected cell seedId=${cellRecord.seedId} (${cellRecord.cellLabel})`;
 }
 
 async function loadScene() {
   const gltf = await loader.loadAsync(DATA_URL);
   world.add(gltf.scene);
 
-  const roots = gltf.scene.children.filter((child) => child.name?.startsWith('cell-'));
+  const roots = gltf.scene.children.filter((child) => child.userData?.seedId !== undefined || child.name?.startsWith('cell-'));
   let faceCount = 0;
   let boundaryCount = 0;
 
   for (const root of roots) {
-    const record = { seedId: root.userData.seedId ?? -1, group: root, meshes: [], lines: [], basePosition: root.position.clone(), explodeDir: new THREE.Vector3() };
+    const record = {
+      seedId: root.userData.seedId ?? -1,
+      isShell: Boolean(root.userData.isShell),
+      cellLabel: root.userData.cellLabel ?? (root.userData.isShell ? 'shell' : 'non-shell'),
+      group: root,
+      meshes: [],
+      lines: [],
+      basePosition: root.position.clone(),
+      explodeDir: new THREE.Vector3(),
+    };
     root.traverse((obj) => {
       if (obj.isMesh) {
         if (!obj.geometry.getAttribute('normal')) {
@@ -183,7 +195,15 @@ async function loadScene() {
       record.explodeDir.normalize();
     }
   }
-  updateMeta({ numShellCells: cellGroups.length, numFaces: faceCount, numBoundaries: boundaryCount });
+  const numShellCells = cellGroups.filter((cell) => cell.isShell).length;
+  const numCells = roots.length;
+  updateMeta({
+    numCells,
+    numShellCells,
+    numNonShellCells: numCells - numShellCells,
+    numFaces: faceCount,
+    numBoundaries: boundaryCount,
+  });
 }
 
 function bindControls() {

@@ -11,7 +11,7 @@ import matplotlib.tri as mtri
 import numpy as np
 from matplotlib import colors as mcolors
 
-from topopt_sampling.exact_restricted_voronoi_3d import AnnularCylinderDomain, build_exact_restricted_voronoi_diagram
+from topopt_sampling.exact_restricted_voronoi_3d import AnnularCylinderDomain, ExactRestrictedVoronoiDiagram, build_exact_restricted_voronoi_diagram
 from topopt_sampling.hybrid_exact_brep import (
     ExactCircleArc,
     ExactCylinderPlaneCurve,
@@ -24,6 +24,12 @@ from topopt_sampling.hybrid_exact_brep import (
 SHELL_SUPPORT_KEYS = {"outer_cylinder", "inner_cylinder", "top_cap", "bottom_cap"}
 CYLINDER_THETA_GRID_SAMPLES = 144
 CYLINDER_Z_GRID_SAMPLES = 40
+CYLINDER_THETA_GRID_MIN = 16
+CYLINDER_THETA_GRID_MAX = 144
+CYLINDER_Z_GRID_MIN = 8
+CYLINDER_Z_GRID_MAX = 40
+POLYGON_GRID_MIN = 8
+POLYGON_GRID_MAX = 20
 _ARRAY_BUFFER = 34962
 _ELEMENT_ARRAY_BUFFER = 34963
 _MODE_LINES = 1
@@ -36,6 +42,7 @@ _COMPONENT_UINT = 5125
 class ThreeJSGLBExportSummary:
     num_cells: int
     num_shell_cells: int
+    num_exported_cells: int
     num_faces: int
     num_triangles: int
     num_boundaries: int
@@ -231,7 +238,18 @@ def ordered_loop_points(face, edge_lookup: dict[int, object], seam_points_lookup
     return loops
 
 
-def triangulate_polygon_2d(points_2d: np.ndarray, holes_2d: list[np.ndarray] | None = None, samples: int = 16):
+def _adaptive_polygon_grid_samples(points_2d: np.ndarray, holes_2d: list[np.ndarray] | None = None) -> int:
+    holes_2d = holes_2d or []
+    all_points = [points_2d[:, :2]] + [hole[:, :2] for hole in holes_2d]
+    stacked = np.vstack(all_points)
+    span = stacked.max(axis=0) - stacked.min(axis=0)
+    span_score = max(float(np.max(span)), 0.0)
+    boundary_points = int(sum(loop.shape[0] for loop in all_points))
+    sample_count = int(max(POLYGON_GRID_MIN, min(POLYGON_GRID_MAX, math.ceil(span_score / 8.0) + math.ceil(math.sqrt(max(boundary_points, 1))) // 2)))
+    return sample_count
+
+
+def triangulate_polygon_2d(points_2d: np.ndarray, holes_2d: list[np.ndarray] | None = None, samples: int | None = None):
     holes_2d = holes_2d or []
     outer_path = mpath.Path(points_2d[:, :2])
     all_points = [points_2d[:, :2]] + [hole[:, :2] for hole in holes_2d]
@@ -240,8 +258,9 @@ def triangulate_polygon_2d(points_2d: np.ndarray, holes_2d: list[np.ndarray] | N
     maxs = stacked.max(axis=0)
     if np.any(maxs - mins < 1e-8):
         return None, None
-    x_values = np.linspace(mins[0], maxs[0], samples)
-    y_values = np.linspace(mins[1], maxs[1], samples)
+    sample_count = _adaptive_polygon_grid_samples(points_2d, holes_2d) if samples is None else int(samples)
+    x_values = np.linspace(mins[0], maxs[0], sample_count)
+    y_values = np.linspace(mins[1], maxs[1], sample_count)
     grid = np.array(np.meshgrid(x_values, y_values, indexing="xy")).reshape(2, -1).T
     mask = outer_path.contains_points(grid)
     for hole in holes_2d:
@@ -320,6 +339,14 @@ def _select_best_cylinder_atlas(loops: list[np.ndarray], center_x: float, center
     return loops_tz, seam_theta
 
 
+def _adaptive_cylinder_grid_samples(theta_min: float, theta_max: float, z_min: float, z_max: float) -> tuple[int, int]:
+    theta_span = max(0.0, float(theta_max - theta_min))
+    z_span = max(0.0, float(z_max - z_min))
+    theta_samples = int(np.clip(math.ceil(theta_span / (2.0 * math.pi) * CYLINDER_THETA_GRID_SAMPLES), CYLINDER_THETA_GRID_MIN, CYLINDER_THETA_GRID_MAX))
+    z_samples = int(np.clip(math.ceil(z_span / 8.0), CYLINDER_Z_GRID_MIN, CYLINDER_Z_GRID_MAX))
+    return theta_samples, z_samples
+
+
 def cylinder_face_triangles(
     face,
     edge_lookup: dict[int, object],
@@ -339,10 +366,11 @@ def cylinder_face_triangles(
     z_min = float(domain.z_min)
     z_max = float(domain.z_max)
 
-    base_theta = np.linspace(0.0, 2.0 * np.pi, CYLINDER_THETA_GRID_SAMPLES, endpoint=True, dtype=np.float64)
+    theta_samples, z_samples = _adaptive_cylinder_grid_samples(theta_min, theta_max, z_min, z_max)
+    base_theta = np.linspace(0.0, 2.0 * np.pi, theta_samples, endpoint=True, dtype=np.float64)
     theta_grid = np.concatenate((base_theta, base_theta[1:] + 2.0 * np.pi))
     theta_grid = theta_grid[(theta_grid >= theta_min - 1e-9) & (theta_grid <= theta_max + 1e-9)]
-    z_grid = np.linspace(z_min, z_max, CYLINDER_Z_GRID_SAMPLES, endpoint=True, dtype=np.float64)
+    z_grid = np.linspace(z_min, z_max, z_samples, endpoint=True, dtype=np.float64)
     theta_mesh, z_mesh = np.meshgrid(theta_grid, z_grid, indexing="xy")
     interior_grid = np.column_stack((theta_mesh.ravel(), z_mesh.ravel()))
 
@@ -403,20 +431,21 @@ def _edge_signature(points: np.ndarray, support_keys: tuple[str, str]) -> tuple[
     return tuple(sorted(support_keys)), end_key, start_key
 
 
-def _snap_triangle_vertices(
-    triangles: list[np.ndarray],
-    shared_snap: dict[tuple[int, int, int], np.ndarray],
-) -> list[np.ndarray]:
-    result: list[np.ndarray] = []
-    for tri in triangles:
-        snapped_tri = np.empty_like(tri, dtype=np.float32)
-        for idx, point in enumerate(np.asarray(tri, dtype=np.float32)):
-            key = _quantize_point(point)
-            if key not in shared_snap:
-                shared_snap[key] = point.astype(np.float32, copy=True)
-            snapped_tri[idx] = shared_snap[key]
-        result.append(snapped_tri)
-    return result
+def _indexed_vertices(
+    positions: np.ndarray,
+    normals: np.ndarray,
+    scale: float = 1e7,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    positions = np.ascontiguousarray(positions, dtype=np.float32)
+    normals = np.ascontiguousarray(normals, dtype=np.float32)
+    if positions.shape[0] == 0:
+        return positions, normals, np.zeros((0,), dtype=np.uint32)
+    pos_q = np.rint(positions.astype(np.float64) * scale).astype(np.int64)
+    normal_q = np.rint(normals.astype(np.float64) * scale).astype(np.int64)
+    packed = np.concatenate((pos_q, normal_q), axis=1)
+    unique_packed, unique_indices, inverse = np.unique(packed, axis=0, return_index=True, return_inverse=True)
+    del unique_packed
+    return positions[unique_indices], normals[unique_indices], inverse.astype(np.uint32)
 
 
 def _snap_polyline_points(points: np.ndarray, shared_snap: dict[tuple[int, int, int], np.ndarray]) -> np.ndarray:
@@ -529,18 +558,24 @@ def _triangle_normals_for_face(face, triangles: list[np.ndarray], support_lookup
     return np.repeat(normal.reshape(1, 3), count, axis=0).astype(np.float32)
 
 
-def _shell_cells(diagram_brep: HybridExactDiagramBRep) -> list[HybridExactCellBRep]:
-    return [cell for cell in diagram_brep.cells if any(face.support_key in SHELL_SUPPORT_KEYS for face in cell.faces)]
+def _is_shell_cell(cell: HybridExactCellBRep) -> bool:
+    return any(face.support_key in SHELL_SUPPORT_KEYS for face in cell.faces)
 
 
-def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDomain) -> tuple[bytes, ThreeJSGLBExportSummary]:
-    diagram = build_exact_restricted_voronoi_diagram(seed_points=seed_points, domain=domain, include_support_traces=False)
+def build_hybrid_exact_diagram_brep_from_diagram(diagram: ExactRestrictedVoronoiDiagram) -> HybridExactDiagramBRep:
     cells = tuple(
         build_hybrid_exact_cell_brep(cell, diagram, cell.neighboring_seed_ids)
         for cell in diagram.cells
     )
-    diagram_brep = HybridExactDiagramBRep(cells=cells)
-    shell_cells = _shell_cells(diagram_brep)
+    return HybridExactDiagramBRep(cells=cells)
+
+
+def serialize_threejs_shell_glb(
+    diagram_brep: HybridExactDiagramBRep,
+    domain: AnnularCylinderDomain,
+) -> tuple[bytes, ThreeJSGLBExportSummary]:
+    cells = list(diagram_brep.cells)
+    num_shell_cells = sum(1 for cell in cells if _is_shell_cell(cell))
 
     builder = _GLBBuilder()
     line_material_index = builder.add_material((0.05, 0.05, 0.05), double_sided=True, unlit=True)
@@ -548,14 +583,13 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
     total_faces = 0
     total_triangles = 0
     total_boundaries = 0
-    shared_snap: dict[tuple[int, int, int], np.ndarray] = {}
     global_seam_registry: dict[tuple[tuple[str, str], tuple[int, int, int], tuple[int, int, int]], np.ndarray] = {}
     cell_seam_points: dict[int, dict[int, np.ndarray]] = {}
 
-    for cell in shell_cells:
+    for cell in cells:
         seam_lookup: dict[int, np.ndarray] = {}
         for edge in cell.edges:
-            sampled = _snap_polyline_points(sample_curve(edge.curve, num=36).astype(np.float32), shared_snap)
+            sampled = sample_curve(edge.curve, num=36).astype(np.float32)
             signature = _edge_signature(sampled, edge.support_keys)
             if signature not in global_seam_registry:
                 canonical = sampled.copy()
@@ -569,7 +603,8 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
                 seam_lookup[edge.edge_id] = canonical[::-1].copy()
         cell_seam_points[cell.seed_id] = seam_lookup
 
-    for cell in shell_cells:
+    for cell in cells:
+        is_shell_cell = _is_shell_cell(cell)
         edge_lookup = {edge.edge_id: edge for edge in cell.edges}
         support_lookup = {support.key: support for support in cell.supports}
         line_positions: list[np.ndarray] = []
@@ -590,27 +625,22 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
             if tris:
                 total_faces += 1
                 total_triangles += len(tris)
-                snapped_tris = _snap_triangle_vertices(tris, shared_snap)
-                normals = _triangle_normals_for_face(face, snapped_tris, support_lookup)
-                face_groups[face.support_type]["positions"].append(np.asarray(snapped_tris, dtype=np.float32).reshape(-1, 3))
+                triangle_positions = np.asarray(tris, dtype=np.float32).reshape(-1, 3)
+                normals = _triangle_normals_for_face(face, tris, support_lookup)
+                face_groups[face.support_type]["positions"].append(triangle_positions)
                 face_groups[face.support_type]["normals"].append(normals)
-            if face.support_key not in SHELL_SUPPORT_KEYS:
-                continue
             for loop in face.loop_edge_ids:
                 for edge_id in loop:
-                    edge_to_shell_faces.setdefault(edge_id, []).append(face)
-                    if edge_id in seen_edges:
-                        continue
-                    edge = edge_lookup[edge_id]
-                    if not any(key in SHELL_SUPPORT_KEYS for key in edge.support_keys):
-                        continue
-                    points = seam_points_lookup[edge_id]
-                    segments = np.empty((max(0, 2 * (len(points) - 1)), 3), dtype=np.float32)
-                    segments[0::2] = points[:-1]
-                    segments[1::2] = points[1:]
-                    line_positions.append(segments)
-                    seen_edges.add(edge_id)
-                    total_boundaries += 1
+                    if edge_id not in seen_edges:
+                        points = seam_points_lookup[edge_id]
+                        segments = np.empty((max(0, 2 * (len(points) - 1)), 3), dtype=np.float32)
+                        segments[0::2] = points[:-1]
+                        segments[1::2] = points[1:]
+                        line_positions.append(segments)
+                        seen_edges.add(edge_id)
+                        total_boundaries += 1
+                    if face.support_key in SHELL_SUPPORT_KEYS:
+                        edge_to_shell_faces.setdefault(edge_id, []).append(face)
 
         seam_strip_positions: list[np.ndarray] = []
         seam_strip_normals: list[np.ndarray] = []
@@ -630,8 +660,7 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
                 support_lookup,
             )
             if strip_tris:
-                snapped_strip_tris = _snap_triangle_vertices(strip_tris, shared_snap)
-                seam_strip_positions.append(np.asarray(snapped_strip_tris, dtype=np.float32).reshape(-1, 3))
+                seam_strip_positions.append(np.asarray(strip_tris, dtype=np.float32).reshape(-1, 3))
                 seam_strip_normals.append(strip_normals)
 
         primitives: list[dict[str, object]] = []
@@ -648,9 +677,9 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
                 continue
             position_array = np.vstack(face_groups[group_name]["positions"]).astype(np.float32)
             normal_array = np.vstack(face_groups[group_name]["normals"]).astype(np.float32)
-            indices = np.arange(position_array.shape[0], dtype=np.uint32)
-            position_accessor = builder.add_accessor(position_array, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
-            normal_accessor = builder.add_accessor(normal_array, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
+            indexed_positions, indexed_normals, indices = _indexed_vertices(position_array, normal_array)
+            position_accessor = builder.add_accessor(indexed_positions, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
+            normal_accessor = builder.add_accessor(indexed_normals, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
             index_accessor = builder.add_accessor(indices, type_name="SCALAR", component_type=_COMPONENT_UINT, target=_ELEMENT_ARRAY_BUFFER)
             primitives.append(
                 {
@@ -664,9 +693,9 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
         if seam_strip_positions:
             seam_position_array = np.vstack(seam_strip_positions).astype(np.float32)
             seam_normal_array = np.vstack(seam_strip_normals).astype(np.float32)
-            seam_indices = np.arange(seam_position_array.shape[0], dtype=np.uint32)
-            seam_position_accessor = builder.add_accessor(seam_position_array, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
-            seam_normal_accessor = builder.add_accessor(seam_normal_array, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
+            indexed_seam_positions, indexed_seam_normals, seam_indices = _indexed_vertices(seam_position_array, seam_normal_array)
+            seam_position_accessor = builder.add_accessor(indexed_seam_positions, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
+            seam_normal_accessor = builder.add_accessor(indexed_seam_normals, type_name="VEC3", component_type=_COMPONENT_FLOAT, target=_ARRAY_BUFFER)
             seam_index_accessor = builder.add_accessor(seam_indices, type_name="SCALAR", component_type=_COMPONENT_UINT, target=_ELEMENT_ARRAY_BUFFER)
             primitives.append(
                 {
@@ -703,7 +732,11 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
         parent_node_index = builder.add_node(
             {
                 "name": f"cell-{cell.seed_id}",
-                "extras": {"seedId": int(cell.seed_id)},
+                "extras": {
+                    "seedId": int(cell.seed_id),
+                    "isShell": bool(is_shell_cell),
+                    "cellLabel": "shell" if is_shell_cell else "non-shell",
+                },
                 "children": child_nodes,
             }
         )
@@ -712,13 +745,26 @@ def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDoma
     glb_bytes = builder.to_glb_bytes(scene_root_nodes)
     summary = ThreeJSGLBExportSummary(
         num_cells=len(diagram_brep.cells),
-        num_shell_cells=len(scene_root_nodes),
+        num_shell_cells=num_shell_cells,
+        num_exported_cells=len(scene_root_nodes),
         num_faces=total_faces,
         num_triangles=total_triangles,
         num_boundaries=total_boundaries,
         output_bytes=len(glb_bytes),
     )
     return glb_bytes, summary
+
+
+def build_threejs_shell_glb_from_diagram(
+    diagram: ExactRestrictedVoronoiDiagram,
+) -> tuple[bytes, ThreeJSGLBExportSummary]:
+    diagram_brep = build_hybrid_exact_diagram_brep_from_diagram(diagram)
+    return serialize_threejs_shell_glb(diagram_brep=diagram_brep, domain=diagram.domain)
+
+
+def build_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDomain) -> tuple[bytes, ThreeJSGLBExportSummary]:
+    diagram = build_exact_restricted_voronoi_diagram(seed_points=seed_points, domain=domain, include_support_traces=False)
+    return build_threejs_shell_glb_from_diagram(diagram)
 
 
 def write_threejs_shell_glb(seed_points: np.ndarray, domain: AnnularCylinderDomain, output_path: Path) -> ThreeJSGLBExportSummary:

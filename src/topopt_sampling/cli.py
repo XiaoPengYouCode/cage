@@ -7,6 +7,7 @@ from typing import Sequence
 
 import numpy as np
 
+from topopt_sampling.benchmark import benchmark_fake_topopt_to_glb, write_benchmark_report
 from topopt_sampling.demo import (
     generate_annular_cylinder_npz,
     generate_fake_density_result,
@@ -195,6 +196,52 @@ def build_threejs_shell_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_benchmark_end_to_end_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        "topopt-sampling benchmark-end-to-end",
+        "Benchmark the full fake-topopt -> seeds -> exact Voronoi -> shell GLB pipeline.",
+    )
+    parser.add_argument(
+        "--voxel-output",
+        type=Path,
+        default=Path("datasets/voxel/voxel_annular_cylinder_200x200x80.npz"),
+    )
+    parser.add_argument(
+        "--density-output",
+        type=Path,
+        default=Path("datasets/topopt/fake_density_annular_cylinder_200x200x80.npz"),
+    )
+    parser.add_argument(
+        "--seed-output",
+        type=Path,
+        default=Path("datasets/topopt/seed_probability_mapping_2000.npz"),
+    )
+    parser.add_argument(
+        "--glb-output",
+        type=Path,
+        default=Path("viewer/public/data/hybrid_exact_shell_2000.glb"),
+    )
+    parser.add_argument(
+        "--report-json",
+        type=Path,
+        default=Path("docs/analysis/topopt_end_to_end_benchmark_2000.json"),
+    )
+    parser.add_argument(
+        "--report-markdown",
+        type=Path,
+        default=Path("docs/analysis/topopt_end_to_end_benchmark_2000.md"),
+    )
+    parser.add_argument("--xy-size", type=int, default=200)
+    parser.add_argument("--z-size", type=int, default=80)
+    parser.add_argument("--outer-radius", type=float, default=100.0)
+    parser.add_argument("--inner-radius", type=float, default=50.0)
+    parser.add_argument("--num-seeds", type=int, default=2_000)
+    parser.add_argument("--gamma", type=float, default=1.0)
+    parser.add_argument("--rng-seed", type=int, default=42)
+    parser.add_argument("--chunk-depth", type=int, default=8)
+    return parser
+
+
 def build_exact_brep_parser() -> argparse.ArgumentParser:
     parser = build_parser(
         "topopt-sampling build-exact-brep",
@@ -227,6 +274,7 @@ def build_exact_brep_parser() -> argparse.ArgumentParser:
 
 
 COMMAND_PARSERS = {
+    "benchmark-end-to-end": build_benchmark_end_to_end_parser,
     "build-exact-brep": build_exact_brep_parser,
     "exact-summary": build_exact_summary_parser,
     "export-threejs-shell-glb": build_threejs_shell_parser,
@@ -305,6 +353,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         return
 
+    if args.command == "benchmark-end-to-end":
+        result = benchmark_fake_topopt_to_glb(
+            voxel_output=args.voxel_output,
+            density_output=args.density_output,
+            seed_output=args.seed_output,
+            glb_output=args.glb_output,
+            xy_size=args.xy_size,
+            z_size=args.z_size,
+            outer_radius=args.outer_radius,
+            inner_radius=args.inner_radius,
+            num_seeds=args.num_seeds,
+            gamma=args.gamma,
+            rng_seed=args.rng_seed,
+            chunk_depth=args.chunk_depth,
+        )
+        write_benchmark_report(result, json_path=args.report_json, markdown_path=args.report_markdown)
+        print(
+            f"Benchmarked fake-topopt -> GLB: total={result.total_wall_seconds:.2f}s, "
+            f"glb_bytes={result.output_bytes}, output={args.glb_output.resolve()}"
+        )
+        for stage in result.stages:
+            print(f"  - {stage.name}: {stage.wall_seconds:.2f}s")
+        print(f"  - user: {result.total_user_seconds:.2f}s")
+        print(f"  - sys: {result.total_sys_seconds:.2f}s")
+        if args.report_json is not None:
+            print(f"  - report json: {args.report_json.resolve()}")
+        if args.report_markdown is not None:
+            print(f"  - report markdown: {args.report_markdown.resolve()}")
+        return
+
     if args.command == "build-exact-brep":
         with np.load(args.seed_npz) as data:
             seed_points = data["seed_points"].astype(float)
@@ -334,9 +412,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         summary = write_threejs_shell_glb(seed_points=seed_points, domain=domain, output_path=args.output_json)
         print(
-            f"Exported Three.js shell GLB: cells={summary.num_cells}, shell_cells={summary.num_shell_cells}, "
-            f"faces={summary.num_faces}, triangles={summary.num_triangles}, boundaries={summary.num_boundaries}, "
-            f"bytes={summary.output_bytes}, output={args.output_json.resolve()}"
+            f"Exported Three.js labeled GLB: cells={summary.num_cells}, exported_cells={summary.num_exported_cells}, "
+            f"shell_cells={summary.num_shell_cells}, faces={summary.num_faces}, triangles={summary.num_triangles}, "
+            f"boundaries={summary.num_boundaries}, bytes={summary.output_bytes}, output={args.output_json.resolve()}"
         )
         return
 

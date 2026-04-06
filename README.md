@@ -102,6 +102,20 @@ uv run topopt-sampling build-exact-brep \
 - exact edges with analytic curve kinds (`line_segment`, `circle_arc`, `cylinder_plane_curve`)
 - exact vertices with triple-support provenance
 
+如果要记录一条更完整的 fake topopt -> GLB 端到端 benchmark，可以直接运行：
+
+```bash
+uv run topopt-sampling benchmark-end-to-end \
+  --voxel-output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --density-output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --seed-output datasets/topopt/seed_probability_mapping_2000.npz \
+  --glb-output viewer/public/data/hybrid_exact_shell_2000.glb \
+  --report-json docs/analysis/topopt_end_to_end_benchmark_2000.json \
+  --report-markdown docs/analysis/topopt_end_to_end_benchmark_2000.md
+```
+
+这个命令会按阶段记录：voxel 生成、fake density 生成、seed 采样、Delaunay 邻接、exact restricted Voronoi cells、hybrid exact shell cells、GLB 序列化与写盘。
+
 对于 shell blocks 的交互查看，可以直接导出 Three.js viewer 所需的 GLB：
 
 ```bash
