@@ -148,6 +148,12 @@ uv run topopt-sampling sample-seeds \
 
 ### D. 生成总览图
 
+总览图现在包含 4 个 panel：
+- 1) 密度场
+- 2) 概率场
+- 3) 2000 个随机种子点
+- 4) 连续中空圆柱域边界上的 3D Voronoi（泰森）裁剪面片图
+
 ```bash
 uv run topopt-sampling render-overview \
   --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
