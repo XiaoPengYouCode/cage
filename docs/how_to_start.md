@@ -119,7 +119,7 @@ uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
 2. 生成假的拓扑优化密度结果：
 
 ```bash
-uv run python experiments/topopt_sampling/generate_fake_density_result.py \
+uv run topopt-sampling generate-fake-density \
   datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
 ```
@@ -136,7 +136,7 @@ uv run topopt-sampling sample-seeds \
 4. 生成总览图：
 
 ```bash
-uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
+uv run topopt-sampling render-overview \
   --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
   --output docs/assets/topopt_sampling_pipeline_overview.png
