@@ -26,7 +26,7 @@ def map_density_to_seed_mapping(
     output_npz: Path,
     *,
     num_seeds: int = 2_000,
-    gamma: float = 1.8,
+    gamma: float = 1.0,
     rng_seed: int = 42,
     progress: bool = False,
 ) -> SeedMappingResult:

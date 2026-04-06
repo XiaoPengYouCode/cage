@@ -32,7 +32,7 @@ uv run helix-voronoi modulus --seed 55 --style both
 
 补充预览图：
 
-![Voronoi Mixed Preview](docs/assets/voronoi_mixed_preview.png)
+<img src="docs/assets/voronoi_mixed_preview.png" alt="Voronoi Mixed Preview" width="320" />
 
 ### 2) `topopt_sampling`
 
@@ -45,7 +45,7 @@ uv run helix-voronoi modulus --seed 55 --style both
 它负责：
 
 - 读取 `.npz` 或 `.mat` 格式的三维密度输入
-- 把密度场转换成采样概率
+- 把密度场转换成采样概率，默认 `gamma=1.0`
 - 一次性从整个三维体素域中随机采样 `seed_points`
 - 把结果保存为 `.npz`，用于后续几何流程
 
@@ -62,10 +62,6 @@ uv run topopt-sampling sample-seeds \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
-示意图：
-
-![Fake Density Result](docs/assets/fake_density_annular_cylinder_200x200x80.png)
-
 ---
 
 ## 数学思路
@@ -77,6 +73,8 @@ uv run topopt-sampling sample-seeds \
 ```text
 w(i,j,k) = rho(i,j,k)^gamma
 ```
+
+当前默认 `gamma = 1.0`。
 
 2. 再做归一化，得到离散概率分布：
 
@@ -94,7 +92,7 @@ seed = voxel_index + uniform_jitter
 
 - 高密度区域更容易被采到
 - 零密度区域不会产生种子
-- 不再引入 template、回填、3x3 拼接之类的额外结构假设
+- 整个流程只依赖密度场本身，不引入额外结构假设
 
 ---
 
@@ -137,14 +135,6 @@ uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
   --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
   --output docs/assets/topopt_sampling_pipeline_overview.png
-```
-
-如果只想看 fake density 本身，也可以：
-
-```bash
-uv run python experiments/topopt_sampling/visualize_fake_density_result.py \
-  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
-  --output docs/assets/fake_density_annular_cylinder_200x200x80.png
 ```
 
 ---
