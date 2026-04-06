@@ -48,6 +48,7 @@ uv run helix-voronoi modulus --seed 55 --style both
 - 把密度场转换成采样概率，默认 `gamma=1.0`
 - 一次性从整个三维体素域中随机采样 `seed_points`
 - 把结果保存为 `.npz`，用于后续几何流程
+- 基于解析支撑面与 Voronoi 半空间，构建 exact restricted Voronoi 3D 架构骨架
 
 源码位置：
 
@@ -70,6 +71,63 @@ uv run topopt-sampling sample-seeds \
   --num-seeds 2000 \
   --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
 ```
+
+对于 exact restricted Voronoi 3D 架构，可以先输出一个解析摘要：
+
+```bash
+uv run topopt-sampling exact-summary \
+  datasets/topopt/seed_probability_mapping_2000.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50
+```
+
+也可以直接生成 end-to-end 的 hybrid exact B-rep JSON 结果：
+
+```bash
+uv run topopt-sampling build-exact-brep \
+  datasets/topopt/seed_probability_mapping_2000.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50 \
+  --seed-ids 0 1 2 \
+  --output-json docs/analysis/restricted_voronoi_brep.json
+```
+
+输出会显式包含：
+- support surfaces
+- exact faces with loop edge ids
+- exact edges with analytic curve kinds (`line_segment`, `circle_arc`, `cylinder_plane_curve`)
+- exact vertices with triple-support provenance
+
+对于 shell blocks 的交互查看，可以直接导出 Three.js viewer 所需的 GLB：
+
+```bash
+uv run topopt-sampling export-threejs-shell-glb \
+  datasets/topopt/seed_probability_mapping_2000.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50 \
+  --output-json viewer/public/data/hybrid_exact_shell_2000.glb
+```
+
+再启动 viewer：
+
+```bash
+cd viewer
+pnpm install
+pnpm dev
+```
+
+默认地址：`http://127.0.0.1:5173/`
+
+当前导出链路已经包含圆柱周期接缝处理：
+- cylinder face 会自动选择更稳定的 seam atlas 再展开三角化
+- shell GLB 导出会对共享 seam 边做 canonical snapping
+- cylinder / plane / cap 交界会额外生成 seam strip，降低接缝裂缝与破面风险
 
 ---
 

@@ -238,6 +238,38 @@ uv run helix-voronoi modulus \
 
 改代码时，最常用的是下面这几个命令：
 
+### Three.js 可视化（推荐用于 shell blocks 交互查看）
+
+先导出 viewer 数据（GLB）：
+
+```bash
+uv run topopt-sampling export-threejs-shell-glb \
+  datasets/topopt/seed_probability_mapping_2000.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50 \
+  --output-json viewer/public/data/hybrid_exact_shell_2000.glb
+```
+
+再启动 viewer：
+
+```bash
+cd viewer
+pnpm install
+pnpm dev
+```
+
+默认读取：
+
+- `viewer/public/data/hybrid_exact_shell_2000.glb`
+
+默认本地地址：
+
+- `http://127.0.0.1:5173/`
+
+说明：当前 viewer 导出链路已经加入圆柱周期接缝修复，包含更稳定的 seam atlas 选择、共享边 snapping，以及 cylinder/plane/cap 交界 seam strip 补面，适合直接检查 shell blocks 的接缝连续性与爆炸图效果。
+
 跑单元测试：
 
 ```bash
