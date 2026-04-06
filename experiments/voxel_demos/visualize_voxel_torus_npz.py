@@ -14,14 +14,6 @@ def load_voxels(npz_path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     return voxels, metadata
 
 
-def downsample_voxels_any(
-    voxels: np.ndarray, max_display_size: int
-) -> tuple[np.ndarray, tuple[int, int, int]]:
-    steps = tuple(max(1, int(np.ceil(size / max_display_size))) for size in voxels.shape)
-    reduced = voxels[:: steps[0], :: steps[1], :: steps[2]] > 0
-    return reduced, steps
-
-
 def build_facecolors(occupancy: np.ndarray) -> np.ndarray:
     z_indices = np.indices(occupancy.shape)[2]
     z_norm = z_indices / max(1, occupancy.shape[2] - 1)
@@ -32,7 +24,6 @@ def build_facecolors(occupancy: np.ndarray) -> np.ndarray:
 
 def plot_voxel_blocks(
     occupancy: np.ndarray,
-    scale_steps: tuple[int, int, int],
     original_shape: tuple[int, int, int],
     output_path: Path | None,
     show: bool,
@@ -47,9 +38,9 @@ def plot_voxel_blocks(
     x_ticks = np.linspace(0, displayed_shape[0], 6)
     y_ticks = np.linspace(0, displayed_shape[1], 6)
     z_ticks = np.linspace(0, displayed_shape[2], 6)
-    x_labels = [str(int(round(value * scale_steps[0]))) for value in x_ticks]
-    y_labels = [str(int(round(value * scale_steps[1]))) for value in y_ticks]
-    z_labels = [str(int(round(value * scale_steps[2]))) for value in z_ticks]
+    x_labels = [str(int(round(value))) for value in x_ticks]
+    y_labels = [str(int(round(value))) for value in y_ticks]
+    z_labels = [str(int(round(value))) for value in z_ticks]
 
     ax.set_xlim(0, displayed_shape[0])
     ax.set_ylim(0, displayed_shape[1])
@@ -89,12 +80,6 @@ def parse_args() -> argparse.Namespace:
         help="Path to the NPZ file.",
     )
     parser.add_argument(
-        "--max-display-size",
-        type=int,
-        default=96,
-        help="Maximum voxel resolution used for block rendering on each axis.",
-    )
-    parser.add_argument(
         "--output",
         type=Path,
         default=Path("docs/assets/voxel_annular_cylinder_200x200x80.png"),
@@ -113,26 +98,19 @@ if __name__ == "__main__":
     voxels, metadata = load_voxels(args.npz_path)
     xy_size = int(metadata.get("xy_size", np.array(voxels.shape[0])).item())
     z_size = int(metadata.get("z_size", np.array(voxels.shape[2])).item())
-    reduced_voxels, scale_steps = downsample_voxels_any(
-        voxels=voxels,
-        max_display_size=args.max_display_size,
-    )
+    full_voxels = voxels > 0
     outer_radius = float(metadata.get("outer_radius", np.array(np.nan)).item())
     inner_radius = float(metadata.get("inner_radius", np.array(np.nan)).item())
     shape_name = str(metadata.get("shape_name", np.array("unknown")).item())
     title = (
         f"Voxel {shape_name} | grid={xy_size}x{xy_size}x{z_size} | "
-        f"display={reduced_voxels.shape[0]}x{reduced_voxels.shape[1]}x{reduced_voxels.shape[2]} | "
         f"outer={outer_radius:.1f}, inner={inner_radius:.1f}"
     )
     print(f"loaded: {args.npz_path}")
     print(f"shape: {voxels.shape}")
     print(f"active voxels: {int(voxels.sum())}")
-    print(f"display grid: {reduced_voxels.shape}")
-    print(f"display step: {scale_steps}")
     plot_voxel_blocks(
-        occupancy=reduced_voxels,
-        scale_steps=scale_steps,
+        occupancy=full_voxels,
         original_shape=voxels.shape,
         output_path=args.output,
         show=args.show,

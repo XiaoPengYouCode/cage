@@ -13,18 +13,6 @@ def load_result(npz_path: Path) -> dict[str, np.ndarray]:
         return {key: data[key] for key in data.files}
 
 
-def downsample_result(
-    voxels: np.ndarray,
-    density_milli: np.ndarray,
-    max_display_size: int,
-) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int]]:
-    steps = tuple(max(1, int(np.ceil(size / max_display_size))) for size in voxels.shape)
-    voxels_ds = voxels[:: steps[0], :: steps[1], :: steps[2]] > 0
-    density_ds = density_milli[:: steps[0], :: steps[1], :: steps[2]].astype(np.float32) / 1000.0
-    density_ds = np.where(voxels_ds, density_ds, 0.0)
-    return voxels_ds, density_ds, steps
-
-
 def build_facecolors(voxels: np.ndarray, density: np.ndarray) -> np.ndarray:
     normalized = np.clip(density, 0.0, 1.0)
     cmap = LinearSegmentedColormap.from_list(
@@ -45,7 +33,6 @@ def build_facecolors(voxels: np.ndarray, density: np.ndarray) -> np.ndarray:
 def plot_density_voxels(
     voxels: np.ndarray,
     density: np.ndarray,
-    steps: tuple[int, int, int],
     original_shape: tuple[int, int, int],
     output_path: Path | None,
     show: bool,
@@ -63,9 +50,9 @@ def plot_density_voxels(
     ax.set_xticks(x_ticks)
     ax.set_yticks(y_ticks)
     ax.set_zticks(z_ticks)
-    ax.set_xticklabels([str(int(round(v * steps[0]))) for v in x_ticks])
-    ax.set_yticklabels([str(int(round(v * steps[1]))) for v in y_ticks])
-    ax.set_zticklabels([str(int(round(v * steps[2]))) for v in z_ticks])
+    ax.set_xticklabels([str(int(round(v))) for v in x_ticks])
+    ax.set_yticklabels([str(int(round(v))) for v in y_ticks])
+    ax.set_zticklabels([str(int(round(v))) for v in z_ticks])
     ax.set_xlim(0, displayed_shape[0])
     ax.set_ylim(0, displayed_shape[1])
     ax.set_zlim(0, displayed_shape[2])
@@ -110,12 +97,6 @@ def parse_args() -> argparse.Namespace:
         help="Fake density result NPZ.",
     )
     parser.add_argument(
-        "--max-display-size",
-        type=int,
-        default=96,
-        help="Maximum voxel resolution used for block rendering on each axis.",
-    )
-    parser.add_argument(
         "--output",
         type=Path,
         default=Path("docs/assets/fake_density_annular_cylinder_200x200x80.png"),
@@ -134,27 +115,20 @@ if __name__ == "__main__":
     result = load_result(args.result_npz)
     voxels = result["voxels"]
     density_milli = result["density_milli"]
-    voxels_ds, density_ds, steps = downsample_result(
-        voxels=voxels,
-        density_milli=density_milli,
-        max_display_size=args.max_display_size,
-    )
+    voxels_view = voxels > 0
+    density_view = density_milli.astype(np.float32) / 1000.0
     positive = density_milli[density_milli > 0]
     title = (
         f"Fake density result | grid={voxels.shape[0]}x{voxels.shape[1]}x{voxels.shape[2]} | "
-        f"display={voxels_ds.shape[0]}x{voxels_ds.shape[1]}x{voxels_ds.shape[2]} | "
         f"density={positive.min() / 1000:.3f}..{positive.max() / 1000:.3f}"
     )
     print(f"loaded: {args.result_npz}")
     print(f"shape: {voxels.shape}")
     print(f"active voxels: {int(voxels.sum())}")
     print(f"density range: {positive.min() / 1000:.3f} .. {positive.max() / 1000:.3f}")
-    print(f"display grid: {voxels_ds.shape}")
-    print(f"display step: {steps}")
     plot_density_voxels(
-        voxels=voxels_ds,
-        density=density_ds,
-        steps=steps,
+        voxels=voxels_view,
+        density=density_view,
         original_shape=voxels.shape,
         output_path=args.output,
         show=args.show,

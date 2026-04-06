@@ -7,25 +7,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
+from topopt_sampling.probability import density_to_probability_intensity
+
 
 def load_npz(npz_path: Path) -> dict[str, np.ndarray]:
     with np.load(npz_path) as data:
         return {key: data[key] for key in data.files}
 
 
-def max_project(volume: np.ndarray) -> np.ndarray:
-    return np.max(volume, axis=2)
-
-
-def seed_xy_histogram(seed_points: np.ndarray, shape_xy: tuple[int, int]) -> np.ndarray:
-    x_bins = np.linspace(0.0, shape_xy[0], shape_xy[0] + 1)
-    y_bins = np.linspace(0.0, shape_xy[1], shape_xy[1] + 1)
-    histogram, _, _ = np.histogram2d(
-        seed_points[:, 1],
-        seed_points[:, 0],
-        bins=(y_bins, x_bins),
+def build_density_cmap() -> LinearSegmentedColormap:
+    return LinearSegmentedColormap.from_list(
+        "density_pipeline",
+        [
+            (0.00, "#020617"),
+            (0.20, "#1d4ed8"),
+            (0.48, "#38bdf8"),
+            (0.75, "#fb7185"),
+            (1.00, "#7f1d1d"),
+        ],
     )
-    return histogram.astype(np.float32)
 
 
 def build_probability_cmap() -> LinearSegmentedColormap:
@@ -41,6 +41,43 @@ def build_probability_cmap() -> LinearSegmentedColormap:
     )
 
 
+def build_voxel_facecolors(values: np.ndarray, cmap: LinearSegmentedColormap) -> tuple[np.ndarray, np.ndarray]:
+    clipped = np.clip(values, 0.0, 1.0)
+    occupancy = clipped > 0.0
+    facecolors = cmap(clipped)
+    alpha = 0.10 + 0.75 * clipped
+    facecolors[..., 3] = np.where(occupancy, alpha, 0.0)
+    return occupancy, facecolors
+
+
+def configure_3d_axes(
+    ax: plt.Axes,
+    rendered_shape: tuple[int, int, int],
+    title: str,
+    original_shape: tuple[int, int, int] | None = None,
+) -> None:
+    source_shape = rendered_shape if original_shape is None else original_shape
+    ax.set_title(title)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.set_xlim(0, rendered_shape[0])
+    ax.set_ylim(0, rendered_shape[1])
+    ax.set_zlim(0, rendered_shape[2])
+    ax.set_box_aspect(rendered_shape)
+    ax.view_init(elev=21, azim=38)
+
+    x_ticks = np.linspace(0, rendered_shape[0], 5)
+    y_ticks = np.linspace(0, rendered_shape[1], 5)
+    z_ticks = np.linspace(0, rendered_shape[2], 5)
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
+    ax.set_zticks(z_ticks)
+    ax.set_xticklabels([str(int(round(v))) for v in np.linspace(0, source_shape[0], 5)])
+    ax.set_yticklabels([str(int(round(v))) for v in np.linspace(0, source_shape[1], 5)])
+    ax.set_zticklabels([str(int(round(v))) for v in np.linspace(0, source_shape[2], 5)])
+
+
 def render_overview(
     density_npz: Path,
     seed_npz: Path,
@@ -50,45 +87,45 @@ def render_overview(
     seed_result = load_npz(seed_npz)
 
     density = density_result["density_milli"].astype(np.float32) / 1000.0
-    display_density = seed_result["display_density"].astype(np.float32)
-    display_probability = seed_result["display_probability"].astype(np.float32)
     seed_points = seed_result["seed_points"].astype(np.float32)
     gamma = float(seed_result["gamma"].item())
     num_seeds = int(seed_result["num_seeds"].item())
+    probability = density_to_probability_intensity(density, gamma)
 
-    density_projection = max_project(density)
-    probability_projection = max_project(display_probability)
-    seed_density = seed_xy_histogram(seed_points, density.shape[:2])
+    density_cmap = build_density_cmap()
+    probability_cmap = build_probability_cmap()
+    density_occ, density_facecolors = build_voxel_facecolors(density, density_cmap)
+    probability_occ, probability_facecolors = build_voxel_facecolors(probability, probability_cmap)
 
-    cmap = build_probability_cmap()
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+    fig = plt.figure(figsize=(16, 5), constrained_layout=True)
+    ax0 = fig.add_subplot(1, 3, 1, projection="3d")
+    ax1 = fig.add_subplot(1, 3, 2, projection="3d")
+    ax2 = fig.add_subplot(1, 3, 3, projection="3d")
 
-    im0 = axes[0].imshow(density_projection.T, origin="lower", cmap="magma", vmin=0.0, vmax=1.0)
-    axes[0].set_title("1) Topopt Density")
-    axes[0].set_xlabel("x")
-    axes[0].set_ylabel("y")
-    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04, label="max density over z")
+    ax0.voxels(density_occ, facecolors=density_facecolors, edgecolor="#111827", linewidth=0.03)
+    configure_3d_axes(ax0, density.shape, "1) Topopt Density", density.shape)
+    density_mappable = plt.cm.ScalarMappable(norm=plt.Normalize(vmin=0.0, vmax=1.0), cmap=density_cmap)
+    density_mappable.set_array([])
+    fig.colorbar(density_mappable, ax=ax0, fraction=0.046, pad=0.04, label="density")
 
-    im1 = axes[1].imshow(probability_projection.T, origin="lower", cmap=cmap, vmin=0.0, vmax=1.0)
-    axes[1].set_title(f"2) Probability Field (gamma={gamma:.1f})")
-    axes[1].set_xlabel("x")
-    axes[1].set_ylabel("y")
-    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04, label="max probability over z")
+    ax1.voxels(probability_occ, facecolors=probability_facecolors, edgecolor="#111827", linewidth=0.03)
+    configure_3d_axes(ax1, probability.shape, f"2) Probability Field (gamma={gamma:.1f})", density.shape)
+    probability_mappable = plt.cm.ScalarMappable(norm=plt.Normalize(vmin=0.0, vmax=1.0), cmap=probability_cmap)
+    probability_mappable.set_array([])
+    fig.colorbar(probability_mappable, ax=ax1, fraction=0.046, pad=0.04, label="probability")
 
-    im2 = axes[2].imshow(seed_density.T, origin="lower", cmap="viridis")
-    axes[2].scatter(
+    scatter = ax2.scatter(
         seed_points[:, 0],
         seed_points[:, 1],
+        seed_points[:, 2],
         c=seed_points[:, 2],
-        s=6,
+        s=7,
         cmap="viridis",
-        alpha=0.55,
+        alpha=0.65,
         linewidths=0.0,
     )
-    axes[2].set_title(f"3) Random Seeds (n={num_seeds})")
-    axes[2].set_xlabel("x")
-    axes[2].set_ylabel("y")
-    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04, label="seed count per xy voxel")
+    configure_3d_axes(ax2, density.shape, f"3) Random Seeds (n={num_seeds})", density.shape)
+    fig.colorbar(scatter, ax=ax2, fraction=0.046, pad=0.04, label="seed z")
 
     fig.suptitle(
         "Topology density -> probability -> random seed sampling",
@@ -97,7 +134,7 @@ def render_overview(
     fig.text(
         0.5,
         0.01,
-        f"density grid={density.shape[0]}x{density.shape[1]}x{density.shape[2]} | display grid={display_density.shape[0]}x{display_density.shape[1]}x{display_density.shape[2]}",
+        f"density grid={density.shape[0]}x{density.shape[1]}x{density.shape[2]} | no downsampling",
         ha="center",
         fontsize=10,
         color="#334155",

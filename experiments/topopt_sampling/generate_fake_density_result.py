@@ -19,6 +19,7 @@ def build_density_chunk(
     x_coords: np.ndarray,
     y_coords: np.ndarray,
     z_coords: np.ndarray,
+    z_size: int,
     center_xy: tuple[float, float],
     outer_radius: float,
     inner_radius: float,
@@ -29,10 +30,10 @@ def build_density_chunk(
     radial = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
     annulus_thickness = max(outer_radius - inner_radius, 1e-6)
     radial_norm = np.clip((radial - inner_radius) / annulus_thickness, 0.0, 1.0)
-    z_norm = z / max(z_coords[-1], 1.0)
+    z_norm = np.clip((z - 0.5) / max(float(z_size - 1), 1.0), 0.0, 1.0)
     theta = np.arctan2(y - cy, x - cx)
 
-    field = (
+    raw_field = (
         0.52
         + 0.23 * np.sin(3.0 * theta + 5.5 * z_norm)
         + 0.18 * np.cos(2.0 * np.pi * radial_norm)
@@ -40,7 +41,10 @@ def build_density_chunk(
         + 0.08 * np.cos(9.0 * theta * radial_norm + 2.5 * z_norm)
     )
 
-    field = (field - field.min()) / max(field.max() - field.min(), 1e-6)
+    amplitude_sum = 0.23 + 0.18 + 0.11 + 0.08
+    field_min = 0.52 - amplitude_sum
+    field_max = 0.52 + amplitude_sum
+    field = np.clip((raw_field - field_min) / max(field_max - field_min, 1e-6), 0.0, 1.0)
     density = 0.001 + 0.999 * field
     density = np.round(density, 3)
     density = np.where(voxels_chunk > 0, density, 0.0)
@@ -80,6 +84,7 @@ def generate_fake_density_result(
                 x_coords=x_coords,
                 y_coords=y_coords,
                 z_coords=z_coords,
+                z_size=z_size,
                 center_xy=center_xy,
                 outer_radius=outer_radius,
                 inner_radius=inner_radius,

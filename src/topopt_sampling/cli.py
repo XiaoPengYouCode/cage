@@ -26,7 +26,6 @@ def build_sample_seeds_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--num-seeds", type=int, default=2_000)
     parser.add_argument("--gamma", type=float, default=1.8)
-    parser.add_argument("--max-display-size", type=int, default=84)
     parser.add_argument("--rng-seed", type=int, default=42)
     parser.add_argument(
         "--output-npz",
@@ -70,7 +69,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.output_npz,
         num_seeds=args.num_seeds,
         gamma=args.gamma,
-        max_display_size=args.max_display_size,
         rng_seed=args.rng_seed,
         progress=True,
     )

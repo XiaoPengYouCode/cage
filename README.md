@@ -109,8 +109,8 @@ uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
   --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
   --z-size 80 \
-  --outer-radius 72 \
-  --inner-radius 36
+  --outer-radius 100 \
+  --inner-radius 50
 ```
 
 ### B. 生成假的拓扑优化密度结果

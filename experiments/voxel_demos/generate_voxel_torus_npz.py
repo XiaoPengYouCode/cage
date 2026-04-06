@@ -30,8 +30,8 @@ def generate_annular_cylinder_npz(
     output_path: Path,
     xy_size: int = 200,
     z_size: int = 80,
-    outer_radius: float = 72.0,
-    inner_radius: float = 36.0,
+    outer_radius: float = 100.0,
+    inner_radius: float = 50.0,
     chunk_depth: int = 8,
 ) -> None:
     if xy_size <= 0 or z_size <= 0:
@@ -40,8 +40,8 @@ def generate_annular_cylinder_npz(
         raise ValueError("outer_radius must be positive and inner_radius must be non-negative.")
     if inner_radius >= outer_radius:
         raise ValueError("inner_radius must be smaller than outer_radius.")
-    if outer_radius >= xy_size / 2:
-        raise ValueError("outer_radius must be smaller than xy_size / 2 to fit inside the XY plane.")
+    if outer_radius > xy_size / 2:
+        raise ValueError("outer_radius must be smaller than or equal to xy_size / 2 to fit inside the XY plane.")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     center_xy = ((xy_size - 1) / 2.0, (xy_size - 1) / 2.0)
@@ -113,13 +113,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--outer-radius",
         type=float,
-        default=72.0,
+        default=100.0,
         help="Outer radius of the annular cylinder in voxel units.",
     )
     parser.add_argument(
         "--inner-radius",
         type=float,
-        default=36.0,
+        default=50.0,
         help="Inner radius of the annular cylinder in voxel units.",
     )
     parser.add_argument(

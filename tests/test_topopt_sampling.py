@@ -41,10 +41,10 @@ class SeedMappingWorkflowTest(unittest.TestCase):
                 density_npz,
                 mapping_npz,
                 num_seeds=64,
-                max_display_size=12,
             )
             self.assertTrue(mapping_npz.exists())
             self.assertEqual(mapping.seed_points.shape, (64, 3))
+            self.assertEqual(mapping.probability.shape, density.shape)
 
     def test_sample_seeds_accepts_mat_input(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -59,7 +59,6 @@ class SeedMappingWorkflowTest(unittest.TestCase):
                 density_mat,
                 mapping_npz,
                 num_seeds=32,
-                max_display_size=12,
             )
             self.assertTrue(mapping_npz.exists())
             self.assertEqual(mapping.seed_points.shape, (32, 3))

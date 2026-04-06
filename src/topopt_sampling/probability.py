@@ -58,16 +58,6 @@ def load_density_input(input_path: Path) -> dict[str, np.ndarray]:
     )
 
 
-def downsample_density(
-    density_milli: np.ndarray,
-    max_display_size: int,
-) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int]]:
-    steps = tuple(max(1, int(np.ceil(size / max_display_size))) for size in density_milli.shape)
-    sampled_density = density_milli[:: steps[0], :: steps[1], :: steps[2]].astype(np.float32) / 1000.0
-    occupancy = sampled_density > 0.0
-    return occupancy, sampled_density, steps
-
-
 def density_to_probability_intensity(
     density: np.ndarray,
     gamma: float,
@@ -117,9 +107,6 @@ def save_seed_mapping_result(
     original_shape: tuple[int, int, int],
     gamma: float,
     num_seeds: int,
-    display_density: np.ndarray,
-    display_probability: np.ndarray,
-    display_steps: tuple[int, int, int],
     input_npz: Path,
 ) -> None:
     output_npz.parent.mkdir(parents=True, exist_ok=True)
@@ -130,9 +117,6 @@ def save_seed_mapping_result(
         gamma=np.array(gamma, dtype=np.float32),
         original_shape=np.array(original_shape, dtype=np.int32),
         target_shape=np.array(original_shape, dtype=np.int32),
-        display_density=np.round(display_density, 3).astype(np.float32),
-        display_probability=np.round(display_probability, 6).astype(np.float32),
-        display_steps=np.array(display_steps, dtype=np.int32),
         input_result_npz=np.array(str(input_npz)),
         mapping_type=np.array("density_power_probability"),
     )
