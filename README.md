@@ -1,32 +1,28 @@
-# Helix Voronoi + Topopt Backfill
+# Helix Voronoi + Topopt Sampling
 
-![Voronoi mixed preview](docs/assets/voronoi_mixed_preview.png)
+![Topology Sampling Overview](docs/assets/topopt_sampling_pipeline_overview.png)
 
-一个围绕 **Voronoi 螺旋杆结构生成** 与 **拓扑优化结果回填** 的 Python 项目。
+一个围绕两条主线组织的 Python 项目：
 
-当前仓库采用标准 `src/` layout，在同一个代码库里维护两个边界清晰的 package：
-
-- `helix_voronoi`：负责几何生成、渲染、STL 导出、模量分析
-- `topopt_backfill`：负责把拓扑优化密度场转成 seed cloud，并进一步生成 backfill 数据
+- `helix_voronoi`：Voronoi 杆系几何生成、渲染、STL 导出、模量分析
+- `topopt_sampling`：把拓扑优化三维密度场转成概率分布，并随机采样三维 seed points
 
 ---
 
-## 这两个 package 分别做什么？
+## Packages
 
 ### 1) `helix_voronoi`
-面向 **几何与分析**。
 
-它负责：
+面向几何与分析，负责：
+
 - Voronoi 单胞生成与边提取
 - 直杆 / 螺旋杆实体化
-- 3D 渲染与预览图输出
+- 预览图渲染
 - STL 导出
-- 基于 `SfePy` 的单胞压缩模量分析
-
-源码位置：
-- `src/helix_voronoi/`
+- 基于 `SfePy` 的压缩模量分析
 
 常用命令：
+
 ```bash
 uv run helix-voronoi
 uv run helix-voronoi export-helix --seed 55
@@ -34,159 +30,129 @@ uv run helix-voronoi export-mixed --seed 55
 uv run helix-voronoi modulus --seed 55 --style both
 ```
 
----
+补充预览图：
 
-### 2) `topopt_backfill`
-面向 **工作流编排**。
+<img src="docs/assets/voronoi_mixed_preview.png" alt="Voronoi Mixed Preview" width="320" />
 
-它负责：
-- 读取拓扑优化输出的 density NPZ
-- 把密度场映射成概率分布
-- 按目标 seed count 采样 Voronoi seeds
-- 做 candidate pool 压缩与 FPS 代表点选择
-- 生成 template backfill 数据
+### 2) `topopt_sampling`
 
-源码位置：
-- `src/topopt_backfill/`
-
-常用命令：
-```bash
-uv run topopt-backfill sample-seeds \
-  datasets/topopt/fake_density_annular_cylinder_full.npz \
-  --num-seeds 100000 \
-  --output-npz datasets/topopt/seed_probability_mapping_100k.npz
-
-uv run topopt-backfill backfill-templates \
-  datasets/topopt/fake_density_annular_cylinder_full.npz \
-  datasets/topopt/seed_probability_mapping_100k.npz \
-  --output-npz datasets/topopt/template_backfilled_helix_voronoi.npz
-```
-
----
-
-## 二者关系
-
-可以把整个项目理解成一条上下游链路：
-
-1. `topopt_backfill` 先把拓扑优化结果整理成可用的 seed / backfill 数据
-2. `helix_voronoi` 再负责 Voronoi / helix 几何生成、渲染、导出与分析
-
-也就是说：
-- `topopt_backfill` 偏 **输入处理与工作流**
-- `helix_voronoi` 偏 **几何核心与分析能力**
-
----
-
-## 快速开始
-
-### 环境
-使用 `uv` 管理依赖：
-
-```bash
-uv sync
-```
-
-### 默认渲染
-生成默认 Voronoi 预览图：
-
-```bash
-uv run helix-voronoi
-```
-
-或直接从根目录入口运行：
-
-```bash
-uv run python main.py
-```
-
-如果需要弹出 matplotlib 窗口：
-
-```bash
-uv run python main.py --show
-```
-
-默认输出：
+面向拓扑优化后处理，当前只保留一条干净链路：
 
 ```text
-docs/assets/voronoi_cube_3d.png
+3D density field -> probability field -> random seed points
+```
+
+它负责：
+
+- 读取 `.npz` 或 `.mat` 格式的三维密度输入
+- 把密度场转换成采样概率，默认 `gamma=1.0`
+- 一次性从整个三维体素域中随机采样 `seed_points`
+- 把结果保存为 `.npz`，用于后续几何流程
+
+源码位置：
+
+- `src/topopt_sampling/`
+
+CLI：
+
+```bash
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
 ---
 
-## 典型工作流
+## 数学思路
 
-### A. 几何生成 / STL 导出
+设拓扑优化输出为三维密度场 `rho(i,j,k)`。
 
-导出 helix STL：
+1. 先把密度场转成权重：
 
-```bash
-uv run helix-voronoi export-helix \
-  --seed 55 \
-  --stl-output docs/assets/voronoi_helix_seed55.stl
+```text
+w(i,j,k) = rho(i,j,k)^gamma
 ```
 
-导出 mixed STL：
+当前默认 `gamma = 1.0`。
 
-```bash
-uv run helix-voronoi export-mixed \
-  --seed 55 \
-  --stl-output docs/assets/voronoi_mixed.stl
+2. 再做归一化，得到离散概率分布：
+
+```text
+p(i,j,k) = w(i,j,k) / sum(w)
 ```
 
-### B. 模量分析
+3. 最后按这个离散分布采样 `num_seeds` 次，并在每个被选中的体素内部加入 `[0,1)` 随机扰动，得到连续坐标的种子点：
 
-```bash
-uv run helix-voronoi modulus --seed 55 --style both
+```text
+seed = voxel_index + uniform_jitter
 ```
 
-只检查配置、不启动求解：
+这套方法的重点是：
+
+- 高密度区域更容易被采到
+- 零密度区域不会产生种子
+- 整个流程只依赖密度场本身，不引入额外结构假设
+
+---
+
+## Demo Workflow
+
+仓库默认不提交新的 `200x200x80` demo 输入数据，所以推荐先按下面顺序生成。
+
+### A. 生成中空圆柱体素输入
 
 ```bash
-uv run helix-voronoi modulus --seed 55 --style both --dry-run
+uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
+  --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50
 ```
 
-当前模量分析后端为 `SfePy`，流程是：
-- 体素化直杆或螺旋杆单胞
-- 转换为规则 `Hex8` 六面体网格
-- 施加上下压板位移边界
-- 求 `Z` 向等效模量
-
-### C. 拓扑优化结果 -> seed -> backfill
-
-第一步，生成 seed mapping：
+### B. 生成假的拓扑优化密度结果
 
 ```bash
-uv run topopt-backfill sample-seeds \
-  datasets/topopt/fake_density_annular_cylinder_full.npz \
-  --num-seeds 100000 \
-  --output-npz datasets/topopt/seed_probability_mapping_100k.npz
+uv run python experiments/topopt_sampling/generate_fake_density_result.py \
+  datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
 ```
 
-第二步，生成 backfill 数据：
+### C. 从密度场采样随机种子点
 
 ```bash
-uv run topopt-backfill backfill-templates \
-  datasets/topopt/fake_density_annular_cylinder_full.npz \
-  datasets/topopt/seed_probability_mapping_100k.npz \
-  --output-npz datasets/topopt/template_backfilled_helix_voronoi.npz
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_2000.npz
+```
+
+### D. 生成总览图
+
+```bash
+uv run python experiments/topopt_sampling/render_sampling_pipeline_overview.py \
+  --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
+  --output docs/assets/topopt_sampling_pipeline_overview.png
 ```
 
 ---
 
-## 目录结构
+## Repo Layout
 
 ```text
 src/
   helix_voronoi/      # 几何生成、渲染、STL、分析
-  topopt_backfill/    # density -> seeds -> backfill 工作流
+  topopt_sampling/    # density -> probability -> random seeds 工作流
 
 experiments/
-  topopt_backfill/    # 还未产品化的实验脚本
-  voxel_demos/        # toy voxel demo
+  topopt_sampling/    # density / probability / seed 相关实验脚本
+  voxel_demos/        # 体素 demo
 
 datasets/
-  topopt/             # 拓扑优化链路用到的 npz 数据
-  voxel/              # voxel demo 数据
+  topopt/             # 拓扑优化链路输入与中间结果
+  voxel/              # 体素 demo 数据
 
 docs/assets/          # 文档图片与展示产物
 tests/                # 回归测试
@@ -194,16 +160,7 @@ tests/                # 回归测试
 
 ---
 
-## 开发约定
-
-- 正式功能放 `src/`
-- 实验脚本放 `experiments/`
-- 可复用 `.npz` 数据放 `datasets/`
-- 文档插图和展示图片放 `docs/assets/`
-
----
-
-## 测试
+## Testing
 
 ```bash
 uv run python -m unittest discover -s tests -v
@@ -211,7 +168,7 @@ uv run python -m unittest discover -s tests -v
 
 ---
 
-## 相关文档
+## Related Docs
 
-- 模量分析方案：`docs/analysis/modulus-plan.md`
-- 体素 demo：`docs/voxel_torus_demo.md`
+- `docs/analysis/modulus-plan.md`
+- `docs/voxel_torus_demo.md`

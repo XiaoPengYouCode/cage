@@ -1,7 +1,7 @@
 [project]
 name = "helix-voronoi-workspace"
 version = "0.1.0"
-description = "Helix Voronoi geometry and topology-backfill workflows"
+description = "Helix Voronoi geometry and topology sampling workflows"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 
 [project.scripts]
 helix-voronoi = "helix_voronoi.cli:main"
-topopt-backfill = "topopt_backfill.cli:main"
+topopt-sampling = "topopt_sampling.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -23,4 +23,4 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/helix_voronoi", "src/topopt_backfill"]
+packages = ["src/helix_voronoi", "src/topopt_sampling"]

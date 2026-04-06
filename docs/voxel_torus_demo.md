@@ -1,57 +1,32 @@
 # Voxel Annular Cylinder Demo
 
-新增了两个独立脚本：
+当前体素 demo 默认使用 `200 x 200 x 80` 的中空圆柱体，只负责生成拓扑采样链路的输入几何。
 
-- `experiments/voxel_demos/generate_voxel_torus_npz.py`：生成 `1000 x 1000 x 1000` 的体素圆环柱（XY 平面圆环，沿 Z 轴拉伸），并保存为 `npz`
-- `experiments/voxel_demos/visualize_voxel_torus_npz.py`：从 `npz` 读取体素数据并做三维体素块可视化
+相关脚本：
 
-## 生成 npz
+- `experiments/voxel_demos/generate_voxel_torus_npz.py`
+
+## 生成体素输入
 
 ```bash
-uv run python experiments/voxel_demos/generate_voxel_torus_npz.py
+uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
+  --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50
 ```
 
 默认输出：
 
 ```text
-datasets/voxel/voxel_annular_cylinder_1000.npz
-```
-
-也可以调参数：
-
-```bash
-uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
-  --grid-size 1000 \
-  --outer-radius 360 \
-  --inner-radius 180 \
-  --chunk-depth 8
-```
-
-## 可视化 npz
-
-```bash
-uv run python experiments/voxel_demos/visualize_voxel_torus_npz.py --show
-```
-
-默认会额外保存一张图片：
-
-```text
-docs/assets/voxel_annular_cylinder_1000.png
-```
-
-如果担心显示太慢，可以降低显示分辨率：
-
-```bash
-uv run python experiments/voxel_demos/visualize_voxel_torus_npz.py \
-  datasets/voxel/voxel_annular_cylinder_1000.npz \
-  --max-display-size 80 \
-  --show
+datasets/voxel/voxel_annular_cylinder_200x200x80.npz
 ```
 
 ## 说明
 
-- 数组中空白体素为 `0`
-- 圆环柱体素为 `1`
-- 几何定义是：先在 XY 平面生成一个 2D 圆环，再沿 Z 轴方向贯通整个高度
-- 生成脚本使用 `np.memmap + 分块`，避免直接在内存里一次性构建完整 `1000^3` 数组
-- 可视化脚本使用降采样后的 `ax.voxels(...)` 进行体素块显示，不再是点云散点图
+- 空白体素值为 `0`
+- 几何体素值为 `1`
+- 几何定义是在 XY 平面先生成一个二维圆环，再沿 Z 方向整体拉伸
+- 默认参数下外径正好等于 `200`，也就是会贴满整个 XY 范围
+- 生成脚本使用 `np.memmap + 分块`，避免一次性构建完整三维数组
