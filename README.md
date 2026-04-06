@@ -62,6 +62,15 @@ uv run topopt-sampling sample-seeds \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
+也可以直接使用 Matlab `.mat` 输入：
+
+```bash
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/example_fake_density_annular_cylinder_200x200x80.mat \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
+```
+
 ---
 
 ## 数学思路
@@ -126,6 +135,15 @@ uv run topopt-sampling sample-seeds \
   datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --num-seeds 2000 \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
+```
+
+如果要验证 `.mat` 输入：
+
+```bash
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/example_fake_density_annular_cylinder_200x200x80.mat \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
 ```
 
 ### D. 生成总览图
