@@ -170,5 +170,6 @@ uv run python -m unittest discover -s tests -v
 
 ## Related Docs
 
+- `docs/how_to_start.md`
 - `docs/analysis/modulus-plan.md`
 - `docs/voxel_torus_demo.md`
