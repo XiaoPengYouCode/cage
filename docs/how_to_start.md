@@ -71,7 +71,6 @@ uv run python -m unittest discover -s tests -v
 
 - `src/helix_voronoi/`
 - `src/topopt_sampling/`
-- `experiments/`
 - `datasets/`
 - `docs/assets/`
 - `tests/`
@@ -108,7 +107,7 @@ uv run helix-voronoi \
 1. 生成体素输入：
 
 ```bash
-uv run python experiments/voxel_demos/generate_voxel_torus_npz.py \
+uv run topopt-sampling generate-voxels \
   --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
   --z-size 80 \
@@ -141,6 +140,13 @@ uv run topopt-sampling render-overview \
   --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
   --output docs/assets/topopt_sampling_pipeline_overview.png
 ```
+
+这张总览图和 `README.md` 保持一致，包含 4 个 panel：
+
+- 1) 密度场
+- 2) 概率场
+- 3) 2000 个随机种子点
+- 4) 连续中空圆柱边界上的 3D Voronoi 表面分块图
 
 这条链路里最常改的是：
 
@@ -245,22 +251,15 @@ uv run helix-voronoi --help
 uv run topopt-sampling --help
 ```
 
-直接运行某个实验脚本：
-
-```bash
-uv run python experiments/<path_to_script>.py
-```
-
 一个简单的习惯是：
 
 1. 先跑相关测试
 2. 再跑一次你改到的那条主流程
-3. 如果改到了输出格式或图像，顺手检查 `docs/assets/` 或 `datasets/` 里的产物
+3. 如果改到了输出格式或图像，重新生成产物，并自己检查 `docs/assets/` 或 `datasets/` 里的结果
 
 ## 6. 常见约定
 
 - 正式工作流优先放在 `src/` 下面
-- `experiments/` 只放实验脚本，不保留和正式 CLI 平行的一套实现
 - 可复用的 `.npz` 数据放 `datasets/`
 - 文档展示用图片和 STL 放 `docs/assets/`
 
@@ -269,8 +268,8 @@ uv run python experiments/<path_to_script>.py
 - 项目总览：`README.md`
 - voxel demo 说明：`docs/voxel_torus_demo.md`
 - 模量分析规划：`docs/analysis/modulus-plan.md`
+- 3D 体块规划：`docs/plan/restricted-voronoi-3d-blocks-plan.md`
 - 数据目录说明：`datasets/README.md`
-- 实验脚本约定：`experiments/README.md`
 
 如果你只是想先确认仓库是活的，最短路径就是：
 

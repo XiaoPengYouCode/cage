@@ -13,6 +13,12 @@ from topopt_sampling.demo import (
     generate_fake_density_result,
     render_sampling_overview,
 )
+from topopt_sampling.exact_voronoi import (
+    build_cap_surface_boundary_curves,
+    build_cap_surface_patch_mesh,
+    build_cylinder_surface_boundary_curves,
+    build_cylinder_surface_patch_mesh,
+)
 from topopt_sampling.probability import sample_seed_points
 from topopt_sampling.workflows import map_density_to_seed_mapping
 
@@ -70,6 +76,97 @@ class SeedMappingWorkflowTest(unittest.TestCase):
 
 
 class DemoWorkflowTest(unittest.TestCase):
+    def test_cap_patch_mesh_contains_multiple_regions(self) -> None:
+        seed_points = np.array(
+            [
+                [2.0, 0.0, 0.0],
+                [-2.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        mesh = build_cap_surface_patch_mesh(
+            seed_points=seed_points,
+            center_xy=np.array([0.0, 0.0], dtype=np.float64),
+            inner_radius=0.0,
+            outer_radius=5.0,
+            z_value=0.0,
+            surface_name="top_cap",
+        )
+
+        self.assertGreater(len(mesh.patches), 0)
+        self.assertEqual(set(mesh.seed_ids.tolist()), {0, 1})
+
+    def test_cylinder_patch_mesh_stays_on_requested_radius(self) -> None:
+        seed_points = np.array(
+            [
+                [2.0, 0.0, 2.0],
+                [-2.0, 0.0, 8.0],
+            ],
+            dtype=np.float32,
+        )
+        mesh = build_cylinder_surface_patch_mesh(
+            seed_points=seed_points,
+            center_xy=np.array([0.0, 0.0], dtype=np.float64),
+            radius=5.0,
+            z_min=0.0,
+            z_max=10.0,
+            surface_name="outer_cylinder",
+        )
+
+        self.assertGreater(len(mesh.patches), 0)
+        radii = np.sqrt(mesh.patches[0][:, 0] ** 2 + mesh.patches[0][:, 1] ** 2)
+        self.assertTrue(np.allclose(radii, 5.0, atol=1e-5))
+
+    def test_exact_cap_boundary_is_straight_segment(self) -> None:
+        seed_points = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        curves = build_cap_surface_boundary_curves(
+            seed_points=seed_points,
+            center_xy=np.array([0.0, 0.0], dtype=np.float64),
+            inner_radius=0.0,
+            outer_radius=5.0,
+            z_value=0.0,
+            surface_name="top_cap",
+            active_seed_ids=np.array([0, 1], dtype=np.int32),
+            candidate_pairs=((0, 1),),
+        )
+
+        self.assertEqual(len(curves), 1)
+        points = curves[0].points
+        self.assertTrue(np.allclose(points[:, 0], 0.0, atol=1e-5))
+        self.assertAlmostEqual(float(points[:, 1].min()), -5.0, places=5)
+        self.assertAlmostEqual(float(points[:, 1].max()), 5.0, places=5)
+
+    def test_exact_cylinder_boundary_can_form_horizontal_ring(self) -> None:
+        seed_points = np.array(
+            [
+                [1.0, 0.0, 2.0],
+                [1.0, 0.0, 8.0],
+            ],
+            dtype=np.float32,
+        )
+        curves = build_cylinder_surface_boundary_curves(
+            seed_points=seed_points,
+            center_xy=np.array([0.0, 0.0], dtype=np.float64),
+            radius=5.0,
+            z_min=0.0,
+            z_max=10.0,
+            surface_name="outer_cylinder",
+            active_seed_ids=np.array([0, 1], dtype=np.int32),
+            candidate_pairs=((0, 1),),
+        )
+
+        self.assertEqual(len(curves), 1)
+        points = curves[0].points
+        self.assertTrue(np.allclose(points[:, 2], 5.0, atol=1e-5))
+        radii = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
+        self.assertTrue(np.allclose(radii, 5.0, atol=1e-5))
+
     def test_generate_voxels_writes_expected_shape(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_npz = Path(temp_dir) / "voxels.npz"

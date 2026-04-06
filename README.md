@@ -152,7 +152,7 @@ uv run topopt-sampling sample-seeds \
 - 1) 密度场
 - 2) 概率场
 - 3) 2000 个随机种子点
-- 4) 连续中空圆柱域边界上的 3D Voronoi（泰森）裁剪面片图
+- 4) 连续中空圆柱边界上的 3D Voronoi 表面分块图
 
 ```bash
 uv run topopt-sampling render-overview \
@@ -192,4 +192,5 @@ uv run python -m unittest discover -s tests -v
 
 - `docs/how_to_start.md`
 - `docs/analysis/modulus-plan.md`
+- `docs/plan/restricted-voronoi-3d-blocks-plan.md`
 - `docs/voxel_torus_demo.md`
