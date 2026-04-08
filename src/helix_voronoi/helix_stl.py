@@ -4,13 +4,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import manifold3d as m3d
 import numpy as np
 from stl import Mode, mesh as stl_mesh
 
 from helix_voronoi.models import EdgeSegment
 from helix_voronoi.rods import CylinderRodStyle, HelixRodStyle
 from helix_voronoi.voronoi import CUBE_HALFSPACES
+
+try:
+    import manifold3d as m3d
+except ModuleNotFoundError:
+    m3d = None
 
 # ── Edge classification ───────────────────────────────────────────────────────
 
@@ -92,6 +96,8 @@ def _make_cylinder_manifold(
     radius: float,
     segments: int,
 ) -> m3d.Manifold | None:
+    if m3d is None:
+        raise ModuleNotFoundError("manifold3d is required for mixed STL export.")
     axis = np.asarray(end, float) - np.asarray(start, float)
     length = float(np.linalg.norm(axis))
     if length < 1e-6:
@@ -122,6 +128,8 @@ def _manifold_to_triangles(manifold: m3d.Manifold) -> np.ndarray:
 
 
 def _union_manifolds(manifolds: list[m3d.Manifold]) -> m3d.Manifold:
+    if m3d is None:
+        raise ModuleNotFoundError("manifold3d is required for mixed STL export.")
     result = manifolds[0]
     for manifold in manifolds[1:]:
         result = result + manifold

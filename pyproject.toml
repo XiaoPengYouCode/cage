@@ -15,11 +15,11 @@ helix-voronoi = "helix_voronoi.cli:main"
 topopt-sampling = "topopt_sampling.cli:main"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.4,<0.12"]
+build-backend = "uv_build"
 
 [tool.uv]
 package = true
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/helix_voronoi", "src/topopt_sampling"]
+[tool.uv.build-backend]
+module-name = ["helix_voronoi", "topopt_sampling"]
