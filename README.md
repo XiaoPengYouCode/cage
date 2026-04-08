@@ -4,7 +4,7 @@
 
 一个围绕两条主线组织的 Python 项目：
 
-- `helix_voronoi`：Voronoi 杆系几何生成、渲染、STL 导出、模量分析
+- `helix_voronoi`：Voronoi 杆系几何生成、渲染、STL 导出
 - `topopt_sampling`：把拓扑优化三维密度场转成概率分布，并随机采样三维 seed points
 
 ---
@@ -13,21 +13,18 @@
 
 ### 1) `helix_voronoi`
 
-面向几何与分析，负责：
+面向几何生成与导出，负责：
 
 - Voronoi 单胞生成与边提取
 - 直杆 / 螺旋杆实体化
 - 预览图渲染
 - STL 导出
-- 基于 `SfePy` 的压缩模量分析
-
 常用命令：
 
 ```bash
 uv run helix-voronoi
 uv run helix-voronoi export-helix --seed 55
 uv run helix-voronoi export-mixed --seed 55
-uv run helix-voronoi modulus --seed 55 --style both
 ```
 
 补充预览图：
@@ -101,20 +98,6 @@ uv run topopt-sampling build-exact-brep \
 - exact faces with loop edge ids
 - exact edges with analytic curve kinds (`line_segment`, `circle_arc`, `cylinder_plane_curve`)
 - exact vertices with triple-support provenance
-
-如果要记录一条更完整的 fake topopt -> GLB 端到端 benchmark，可以直接运行：
-
-```bash
-uv run topopt-sampling benchmark-end-to-end \
-  --voxel-output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
-  --density-output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
-  --seed-output datasets/topopt/seed_probability_mapping_2000.npz \
-  --glb-output viewer/public/data/hybrid_exact_shell_2000.glb \
-  --report-json docs/analysis/topopt_end_to_end_benchmark_2000.json \
-  --report-markdown docs/analysis/topopt_end_to_end_benchmark_2000.md
-```
-
-这个命令会按阶段记录：voxel 生成、fake density 生成、seed 采样、Delaunay 邻接、exact restricted Voronoi cells、hybrid exact shell cells、GLB 序列化与写盘。
 
 对于 shell blocks 的交互查看，可以直接导出 Three.js viewer 所需的 GLB：
 
@@ -239,7 +222,7 @@ uv run topopt-sampling render-overview \
 
 ```text
 src/
-  helix_voronoi/      # 几何生成、渲染、STL、分析
+  helix_voronoi/      # 几何生成、渲染、STL 导出
   topopt_sampling/    # density/demo -> probability -> random seeds 工作流
 
 datasets/
@@ -263,6 +246,5 @@ uv run python -m unittest discover -s tests -v
 ## Related Docs
 
 - `docs/how_to_start.md`
-- `docs/analysis/modulus-plan.md`
 - `docs/plan/restricted-voronoi-3d-blocks-plan.md`
 - `docs/voxel_torus_demo.md`

@@ -63,7 +63,7 @@ uv run python -m unittest discover -s tests -v
 仓库主要有两条主线：
 
 - `helix_voronoi`
-  - 负责 Voronoi 单胞生成、预览渲染、STL 导出、模量分析
+  - 负责 Voronoi 单胞生成、预览渲染、STL 导出
 - `topopt_sampling`
   - 负责把拓扑优化三维密度场转成概率分布，并随机采样 seed points
 
@@ -197,44 +197,7 @@ uv run helix-voronoi export-mixed \
 - 想换一个几何实例，改 `--seed`
 - 想控制 Voronoi 复杂度，改 `--num-seeds`
 
-### 工作流 D：做模量分析
-
-模量分析走 `SfePy`，计算会比渲染和导出更重，建议先 dry run。
-
-先检查配置：
-
-```bash
-uv run helix-voronoi modulus \
-  --seed 55 \
-  --style both \
-  --resolutions 96 128 160 \
-  --dry-run
-```
-
-确认没问题后再正式运行：
-
-```bash
-uv run helix-voronoi modulus \
-  --seed 55 \
-  --style both \
-  --resolutions 96 128 160 \
-  --output-markdown docs/analysis/modulus_seed55.md \
-  --output-json docs/analysis/modulus_seed55.json
-```
-
-常用参数：
-
-- `--style cylinder|helix|both`
-- `--resolutions`
-- `--seed`
-- `--num-seeds`
-
-输出通常会写到：
-
-- `docs/analysis/*.md`
-- `docs/analysis/*.json`
-
-### 工作流 E：日常开发
+### 工作流 D：日常开发
 
 改代码时，最常用的是下面这几个命令：
 
@@ -299,7 +262,6 @@ uv run topopt-sampling --help
 
 - 项目总览：`README.md`
 - voxel demo 说明：`docs/voxel_torus_demo.md`
-- 模量分析规划：`docs/analysis/modulus-plan.md`
 - 3D 体块规划：`docs/plan/restricted-voronoi-3d-blocks-plan.md`
 - 数据目录说明：`datasets/README.md`
 

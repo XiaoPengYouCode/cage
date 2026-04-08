@@ -8,7 +8,6 @@ dependencies = [
     "matplotlib>=3.10.8",
     "numpy-stl>=3.2.0",
     "scipy>=1.17.1",
-    "sfepy>=2025.4",
 ]
 
 [project.scripts]
