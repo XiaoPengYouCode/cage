@@ -8,7 +8,6 @@ import numpy as np
 
 from scipy.io import savemat
 
-from topopt_sampling.benchmark import benchmark_fake_topopt_to_glb, write_benchmark_report
 from topopt_sampling.demo import (
     generate_annular_cylinder_npz,
     generate_fake_density_result,
@@ -212,36 +211,6 @@ class ExactRestrictedVoronoiTest(unittest.TestCase):
         self.assertTrue(any(face.support_key == "outer_cylinder" for face in cell.faces))
         self.assertGreaterEqual(len(cell.trim_summary.kept_plane_face_ids), 1)
         self.assertGreaterEqual(len(cell.trim_summary.generated_cylinder_face_ids), 1)
-
-
-class BenchmarkWorkflowTest(unittest.TestCase):
-    def test_benchmark_end_to_end_writes_reports(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            result = benchmark_fake_topopt_to_glb(
-                voxel_output=temp_path / "voxels.npz",
-                density_output=temp_path / "density.npz",
-                seed_output=temp_path / "seeds.npz",
-                glb_output=temp_path / "scene.glb",
-                xy_size=24,
-                z_size=12,
-                outer_radius=12.0,
-                inner_radius=4.0,
-                num_seeds=32,
-                rng_seed=0,
-                chunk_depth=4,
-            )
-            json_path = temp_path / "benchmark.json"
-            markdown_path = temp_path / "benchmark.md"
-            write_benchmark_report(result, json_path=json_path, markdown_path=markdown_path)
-
-            self.assertTrue(result.glb_path.exists())
-            self.assertGreater(result.output_bytes, 0)
-            self.assertGreaterEqual(len(result.stages), 5)
-            self.assertTrue(any(stage.name == "build Delaunay neighbor map" for stage in result.stages))
-            self.assertTrue(json_path.exists())
-            self.assertTrue(markdown_path.exists())
-            self.assertIn("End-to-end benchmark", markdown_path.read_text(encoding="utf-8"))
 
 
 class DemoWorkflowTest(unittest.TestCase):

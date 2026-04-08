@@ -5,13 +5,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Sequence
 
-from helix_voronoi.analysis.config import ModulusAnalysisConfig
-from helix_voronoi.defaults import (
-    DEFAULT_MODULUS_JSON_PATH,
-    DEFAULT_MODULUS_MARKDOWN_PATH,
-    DEFAULT_OUTPUT_PATH,
-    DEFAULT_ROW_SEEDS,
-)
+from helix_voronoi.defaults import DEFAULT_OUTPUT_PATH, DEFAULT_ROW_SEEDS
 from helix_voronoi.models import PipelineConfig, RenderConfig, RowGeometry
 from helix_voronoi.pipeline import VoronoiPipeline
 from helix_voronoi.rendering import plot_grid
@@ -60,49 +54,6 @@ def build_render_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=DEFAULT_ROW_SEEDS,
         help="Random seeds used for the row grid. Default renders three rows.",
-    )
-    return parser
-
-
-def build_modulus_parser() -> argparse.ArgumentParser:
-    parser = build_parser(
-        prog="helix-voronoi modulus",
-        description="Solve the approximate effective modulus for a Voronoi unit cell with SfePy.",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=55,
-        help="Random seed used to generate the unit cell.",
-    )
-    add_num_seeds_argument(parser, default=10)
-    parser.add_argument(
-        "--style",
-        choices=("cylinder", "helix", "both"),
-        default="both",
-        help="Which rod styles to analyze.",
-    )
-    parser.add_argument(
-        "--resolutions",
-        type=int,
-        nargs="+",
-        default=(96, 128, 160),
-        help="Voxel resolutions used for the convergence sweep.",
-    )
-    parser.add_argument(
-        "--output-markdown",
-        default=str(DEFAULT_MODULUS_MARKDOWN_PATH),
-        help="Markdown report output path.",
-    )
-    parser.add_argument(
-        "--output-json",
-        default=str(DEFAULT_MODULUS_JSON_PATH),
-        help="JSON report output path.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Validate configuration and print the intended run without solving.",
     )
     return parser
 
@@ -181,7 +132,6 @@ def build_export_helix_parser() -> argparse.ArgumentParser:
 
 
 COMMAND_PARSERS: dict[str, Callable[[], argparse.ArgumentParser]] = {
-    "modulus": build_modulus_parser,
     "export-mixed": build_export_mixed_parser,
     "export-helix": build_export_helix_parser,
 }
@@ -203,37 +153,6 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         num_seeds=args.num_seeds,
         row_seeds=tuple(args.row_seeds),
         render=render,
-    )
-
-
-def build_modulus_config(args: argparse.Namespace) -> ModulusAnalysisConfig:
-    validate_num_seeds(args.num_seeds)
-    return ModulusAnalysisConfig(
-        seed=args.seed,
-        num_seeds=args.num_seeds,
-        style=args.style,
-        resolutions=tuple(args.resolutions),
-        output_markdown=Path(args.output_markdown),
-        output_json=Path(args.output_json),
-        dry_run=args.dry_run,
-    )
-
-
-def handle_modulus(args: argparse.Namespace) -> None:
-    config = build_modulus_config(args)
-    if config.dry_run:
-        print(
-            f"Dry run: {config.backend} modulus analysis for seed={config.seed}, styles={list(config.selected_styles())}, "
-            f"resolutions={list(config.resolutions)}, markdown={config.output_markdown}, json={config.output_json}"
-        )
-        return
-
-    from helix_voronoi.analysis import run_modulus_analysis
-
-    summary = run_modulus_analysis(config)
-    print(
-        f"Saved modulus reports to {summary.markdown_path.resolve()} and {summary.json_path.resolve()} "
-        f"for seed={config.seed} and styles={list(config.selected_styles())}"
     )
 
 
@@ -297,7 +216,6 @@ def handle_render(args: argparse.Namespace) -> None:
 
 
 COMMAND_HANDLERS: dict[str, CommandHandler] = {
-    "modulus": handle_modulus,
     "export-mixed": handle_export_mixed,
     "export-helix": handle_export_helix,
     "render": handle_render,
