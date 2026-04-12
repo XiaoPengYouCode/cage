@@ -1,0 +1,51 @@
+{
+  "geometry": {
+    "outer_diameter_mm": 30.0,
+    "inner_diameter_mm": 20.0,
+    "height_mm": 30.0
+  },
+  "load": {
+    "applied_force_n": 1000.0,
+    "top_area_mm2": 392.69908169872417,
+    "applied_pressure_mpa": 2.5464790894703255
+  },
+  "material": {
+    "name": "Structural steel",
+    "youngs_modulus_gpa": 210.0,
+    "poisson_ratio": 0.3
+  },
+  "solver": {
+    "backend": "sfepy",
+    "resolution": 40,
+    "active_element_count": 28320,
+    "active_node_count": 34440,
+    "top_contact_nodes": 840,
+    "bottom_contact_nodes": 840
+  },
+  "results": {
+    "outer_diameter_mm": 30.0,
+    "inner_diameter_mm": 20.0,
+    "height_mm": 30.0,
+    "applied_force_n": 1000.0,
+    "applied_pressure_mpa": 2.5464790894703255,
+    "top_area_mm2": 392.69908169872417,
+    "material_name": "Structural steel",
+    "youngs_modulus_gpa": 210.0,
+    "poisson_ratio": 0.3,
+    "active_element_count": 28320,
+    "active_node_count": 34440,
+    "top_contact_nodes": 840,
+    "bottom_contact_nodes": 840,
+    "max_displacement_mm": 0.00036083453070132943,
+    "mean_top_displacement_mm": 0.00035677003712228643,
+    "max_von_mises_mpa": 3.150112982030686,
+    "max_axial_stress_mpa": 3.8258914165402604,
+    "mean_axial_stress_mpa": -2.5464790894701625,
+    "apparent_stiffness_kn_per_mm": 2802.9259633628935
+  },
+  "assumptions": [
+    "The cylinder height is set to 30 mm because the user only specified inner and outer diameters.",
+    "A linear elastic isotropic material model is used.",
+    "The bottom face is fully fixed and the top face receives a uniform traction equivalent to the total force."
+  ]
+}

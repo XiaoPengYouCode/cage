@@ -25,6 +25,10 @@
 uv run helix-voronoi
 uv run helix-voronoi export-helix --seed 55
 uv run helix-voronoi export-mixed --seed 55
+uv run helix-voronoi modulus --seed 55 --style both
+uv run fem-analysis annular-cylinder --outer-diameter-cm 3 --inner-diameter-cm 2 --height-cm 2 --load-n 1000 --voxel-size-mm 0.4
+uv run fem-analysis annular-cylinder --outer-diameter-cm 3 --inner-diameter-cm 2 --height-cm 2 --load-n 1000 --voxel-size-mm 0.4 --inner-fill bone --fill-youngs-modulus-gpa 1.0 --fill-poisson-ratio 0.3
+uv run fem-analysis annular-cylinder --output-npz datasets/topopt/annular_cylinder_fea_density.npz
 ```
 
 补充预览图：
@@ -46,6 +50,15 @@ uv run helix-voronoi export-mixed --seed 55
 - 一次性从整个三维体素域中随机采样 `seed_points`
 - 把结果保存为 `.npz`，用于后续几何流程
 - 基于解析支撑面与 Voronoi 半空间，构建 exact restricted Voronoi 3D 架构骨架
+
+统一 `.npz` 输入约定的最小字段如下：
+
+- `density_milli`：`uint16` 三维密度场，范围 `0..1000`
+- `voxels`：`uint8` 三维占据体素，`0/1`
+- `xy_size`、`z_size`：体素尺寸
+- `shape_name`、`result_type`：数据来源标识
+
+`fem_analysis` 导出的 annular-cylinder `.npz` 已经遵守这套约定，并额外携带 `material_id`、`voxel_size_xyz_m`、`outer_radius`、`inner_radius` 等元数据，能直接喂给 `topopt_sampling sample-seeds`。
 
 源码位置：
 
