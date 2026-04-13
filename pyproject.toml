@@ -7,10 +7,12 @@ requires-python = ">=3.13"
 dependencies = [
     "matplotlib>=3.10.8",
     "numpy-stl>=3.2.0",
+    "scikit-image>=0.22",
     "scipy>=1.17.1",
 ]
 
 [project.scripts]
+ct-reconstruction = "ct_reconstruction.cli:main"
 fem-analysis = "fem_analysis.cli:main"
 helix-voronoi = "helix_voronoi.cli:main"
 topopt-sampling = "topopt_sampling.cli:main"
@@ -23,4 +25,4 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fem_analysis", "src/helix_voronoi", "src/topopt_sampling"]
+packages = ["src/ct_reconstruction", "src/fem_analysis", "src/helix_voronoi", "src/topopt_sampling"]

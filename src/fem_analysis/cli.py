@@ -26,20 +26,20 @@ def build_annular_cylinder_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--outer-diameter-cm",
         type=float,
-        default=3.0,
+        default=2.4,
         help="Outer diameter of the annular cylinder in centimeters.",
     )
     parser.add_argument(
         "--inner-diameter-cm",
         type=float,
-        default=2.0,
+        default=1.2,
         help="Inner diameter of the annular cylinder in centimeters.",
     )
     parser.add_argument(
         "--height-cm",
         type=float,
-        default=2.0,
-        help="Cylinder height in centimeters. Defaults to 2 cm for this demo.",
+        default=1.0,
+        help="Cylinder height in centimeters.",
     )
     parser.add_argument(
         "--load-n",
