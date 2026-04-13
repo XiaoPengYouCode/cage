@@ -155,16 +155,24 @@ def build_annular_cylinder_config(args: argparse.Namespace) -> AnnularCylinderCo
 
 
 def handle_annular_cylinder(args: argparse.Namespace) -> None:
+    import traceback
+
     started_at = time.perf_counter()
 
     def progress(message: str) -> None:
         elapsed_s = time.perf_counter() - started_at
         print(f"[fem-analysis {elapsed_s:7.1f}s] {message}", flush=True)
 
-    summary = run_annular_cylinder_demo(
-        build_annular_cylinder_config(args),
-        progress=progress,
-    )
+    try:
+        summary = run_annular_cylinder_demo(
+            build_annular_cylinder_config(args),
+            progress=progress,
+        )
+    except Exception:
+        elapsed_s = time.perf_counter() - started_at
+        print(f"[fem-analysis {elapsed_s:7.1f}s] ERROR: analysis failed", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
     print(
         f"Saved annular-cylinder FEA to {summary.image_path.resolve()}, {summary.json_path.resolve()}, "
         f"and {summary.npz_path.resolve()} "
