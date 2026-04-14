@@ -16,6 +16,7 @@ ct-reconstruction = "ct_reconstruction.cli:main"
 fem-analysis = "fem_analysis.cli:main"
 helix-voronoi = "helix_voronoi.cli:main"
 topopt-sampling = "topopt_sampling.cli:main"
+matlab2stl-pipeline = "matlab2stl_pipeline.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -25,4 +26,4 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ct_reconstruction", "src/fem_analysis", "src/helix_voronoi", "src/topopt_sampling"]
+packages = ["src/ct_reconstruction", "src/fem_analysis", "src/helix_voronoi", "src/topopt_sampling", "src/matlab2stl_pipeline"]
