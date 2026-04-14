@@ -1,0 +1,17 @@
+{
+  "manifest_json": "viewer/public/data/cvt_experiment_50/manifest.json",
+  "iterations_requested": 50,
+  "num_seeds": 2000,
+  "sample_count": 96000,
+  "backend_used": "cpu",
+  "used_gpu": false,
+  "initial_loss": 45.09377133230033,
+  "final_loss": 24.015503829295753,
+  "loss_drop": 21.078267503004575,
+  "loss_drop_percent": 46.74319064528181,
+  "initial_empty_cells": 171,
+  "final_empty_cells": 124,
+  "initial_sample_count_cv": 1.0428733374480668,
+  "final_sample_count_cv": 0.39318356965219753,
+  "checkpoint_count": 51
+}

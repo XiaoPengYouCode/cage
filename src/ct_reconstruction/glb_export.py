@@ -2,8 +2,23 @@ from __future__ import annotations
 
 """Export a voxel occupancy grid as a GLB file for the Three.js viewer.
 
-Uses Marching Cubes to extract the surface mesh, then serializes it as a
-minimal glTF 2.0 binary (GLB) that the existing viewer can load directly.
+Uses Marching Cubes (skimage.measure.marching_cubes) to extract a smooth
+isosurface from the voxel scalar field, then serializes it as a minimal
+glTF 2.0 binary (GLB) that the existing viewer can load directly.
+
+Why Marching Cubes over exposed-face meshing
+--------------------------------------------
+The previous approach emitted one quad per exposed voxel face, producing a
+staircase surface with flat per-face normals.  Marching Cubes interpolates
+the iso-surface crossing within each voxel cube, yielding a smooth triangulated
+mesh with per-vertex normals.  The result has fewer triangles, no staircase
+artefacts, and renders with smooth shading in Three.js.
+
+The scalar field fed to MC is the float32 occupancy (0.0 or 1.0).  The
+iso-level is 0.5 — exactly midway, so the surface is centred on the
+voxel boundary between filled and empty cells, matching the old geometry's
+position.  Padding with one layer of zeros on all sides ensures that closed
+surfaces are generated at the domain boundary rather than open edge loops.
 """
 
 import struct
@@ -11,6 +26,8 @@ import json
 from pathlib import Path
 
 import numpy as np
+from scipy.ndimage import gaussian_filter
+from skimage.measure import marching_cubes
 
 
 def multi_voxels_to_glb(
@@ -31,7 +48,7 @@ def multi_voxels_to_glb(
     """
     parts = []
     for m in meshes:
-        v, n, f = _exposed_faces(m["occupancy"], m["origin"], m["spacing"])
+        v, n, f = _marching_cubes_surface(m["occupancy"], m["origin"], m["spacing"], m.get("smooth_sigma", 1.0))
         parts.append((v, n, f, m["color"], m.get("name", "mesh")))
     glb_bytes = _build_glb_multi(parts)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,95 +62,81 @@ def voxels_to_glb(
     spacing: np.ndarray,
     output_path: Path,
     color: tuple[float, float, float] = (0.76, 0.60, 0.42),
+    smooth_sigma: float = 1.0,
 ) -> Path:
-    """Convert a voxel occupancy grid to a GLB by emitting only exposed faces.
-
-    For each filled voxel, only the 6 faces that border an empty neighbour (or
-    the grid boundary) are emitted.  Each face is two triangles with a flat
-    outward normal.  This produces a clean, watertight-looking shell with no
-    internal geometry and no winding ambiguity.
+    """Convert a voxel occupancy grid to a GLB using Marching Cubes.
 
     Parameters
     ----------
-    occupancy : (nx, ny, nz) bool array
-    origin    : (3,) float, mm coordinates of voxel [0,0,0] corner
-    spacing   : (3,) float, mm per voxel on each axis
-    output_path : destination .glb file
-    color     : RGB base color in linear space (default: bone/ivory)
+    occupancy    : (nx, ny, nz) bool array
+    origin       : (3,) float, mm coordinates of voxel [0,0,0] corner
+    spacing      : (3,) float, mm per voxel on each axis
+    output_path  : destination .glb file
+    color        : RGB base color in linear space (default: bone/ivory)
+    smooth_sigma : Gaussian pre-smoothing sigma in voxels (default 1.0)
     """
-    verts, normals, faces = _exposed_faces(occupancy, origin, spacing)
+    verts, normals, faces = _marching_cubes_surface(occupancy, origin, spacing, smooth_sigma)
     glb_bytes = _build_glb(verts, normals, faces, color)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(glb_bytes)
     return output_path
 
 
-# Six face directions: (axis, sign, normal_vector)
-# For each, we define 4 corner offsets in voxel units and 2 triangles.
-_FACES = [
-    # axis, step,  normal,           quad corners (in voxel-unit offsets, relative to voxel min corner)
-    (0, -1, (-1, 0, 0), [(0,0,0),(0,0,1),(0,1,1),(0,1,0)]),  # -X
-    (0, +1, (+1, 0, 0), [(1,0,0),(1,1,0),(1,1,1),(1,0,1)]),  # +X
-    (1, -1, (0,-1, 0),  [(0,0,0),(1,0,0),(1,0,1),(0,0,1)]),  # -Y
-    (1, +1, (0,+1, 0),  [(0,1,0),(0,1,1),(1,1,1),(1,1,0)]),  # +Y
-    (2, -1, (0, 0,-1),  [(0,0,0),(0,1,0),(1,1,0),(1,0,0)]),  # -Z
-    (2, +1, (0, 0,+1),  [(0,0,1),(1,0,1),(1,1,1),(0,1,1)]),  # +Z
-]
-
-
-def _exposed_faces(
+def _marching_cubes_surface(
     occupancy: np.ndarray,
     origin: np.ndarray,
     spacing: np.ndarray,
+    smooth_sigma: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return (verts, normals, faces) for all exposed voxel faces."""
-    nx, ny, nz = occupancy.shape
-    sx, sy, sz = spacing
+    """Extract an isosurface via Marching Cubes and return (verts, normals, faces).
 
-    all_verts: list[np.ndarray] = []
-    all_norms: list[np.ndarray] = []
-    all_faces: list[np.ndarray] = []
-    base_idx = 0
+    The occupancy grid is padded with one layer of zeros on every side so that
+    the MC algorithm always sees a closed boundary — without padding, voxels
+    touching the grid edge produce open surface edges instead of a watertight cap.
 
-    # Pad with False so boundary voxels always have an empty neighbour
-    pad = np.zeros((nx+2, ny+2, nz+2), dtype=bool)
-    pad[1:-1, 1:-1, 1:-1] = occupancy
+    MC returns vertex coordinates in voxel index space (accounting for padding).
+    We convert them to world coordinates using origin and spacing, then shift
+    back by one voxel to undo the padding offset.
 
-    filled_coords = np.argwhere(occupancy)  # (N, 3) in ix,iy,iz
+    Parameters
+    ----------
+    smooth_sigma : Gaussian blur sigma applied to the binary field before MC
+                   (in voxels).  Smooths the 0/1 step into a gradient so MC
+                   produces a smoother isosurface.  sigma=0 disables smoothing;
+                   sigma=1.0 gives noticeably smoother rods with minimal shrinkage.
+    """
+    if not np.any(occupancy):
+        raise ValueError("No occupied voxels — occupancy grid is empty.")
 
-    for ix, iy, iz in filled_coords:
-        ox = origin[0] + ix * sx
-        oy = origin[1] + iy * sy
-        oz = origin[2] + iz * sz
+    # Pad with one empty layer on all sides to guarantee closed surfaces
+    field = np.pad(occupancy.astype(np.float32), pad_width=1, mode="constant", constant_values=0.0)
 
-        for axis, step, normal, corners in _FACES:
-            # Check neighbour in padded array (pad offset = +1)
-            ni = [ix+1, iy+1, iz+1]
-            ni[axis] += step
-            if pad[ni[0], ni[1], ni[2]]:
-                continue  # neighbour is filled → internal face, skip
+    # Gaussian pre-smoothing: softens the hard 0/1 boundary so MC interpolates
+    # a smoother isosurface.  The iso-level stays at 0.5 (field midpoint).
+    if smooth_sigma > 0:
+        field = gaussian_filter(field, sigma=smooth_sigma)
 
-            # 4 vertices of this quad
-            quad = np.array([
-                [ox + c[0]*sx, oy + c[1]*sy, oz + c[2]*sz]
-                for c in corners
-            ], dtype=np.float32)
+    mc_verts, mc_faces, mc_normals, _ = marching_cubes(
+        field,
+        level=0.5,
+        spacing=(spacing[0], spacing[1], spacing[2]),
+        allow_degenerate=False,
+    )
 
-            all_verts.append(quad)
-            all_norms.append(np.tile(normal, (4, 1)).astype(np.float32))
-            # Two triangles: 0-1-2 and 0-2-3
-            all_faces.append(np.array([
-                [base_idx, base_idx+1, base_idx+2],
-                [base_idx, base_idx+2, base_idx+3],
-            ], dtype=np.uint32))
-            base_idx += 4
+    # MC vertex coordinates are in mm (spacing applied), but the origin is at
+    # the pad=1 voxel, so shift back by one voxel in each axis.
+    mc_verts = mc_verts - spacing  # undo pad offset
+    mc_verts = mc_verts + origin   # translate to world origin
 
-    if not all_verts:
-        raise ValueError("No exposed faces found — occupancy grid may be empty.")
+    # skimage marching_cubes uses the gradient direction to determine winding
+    # order, which for a solid field (interior=1, exterior=0) produces
+    # inward-facing normals.  Reversing the winding order of every triangle
+    # (swap v1↔v2) flips the geometric normal to point outward without
+    # touching the per-vertex normals skimage computed.
+    verts   = mc_verts.astype(np.float32)
+    normals = mc_normals.astype(np.float32)
+    faces   = mc_faces[:, [0, 2, 1]].astype(np.uint32)  # swap v1↔v2 → outward winding
 
-    verts   = np.concatenate(all_verts,  axis=0)
-    normals = np.concatenate(all_norms,  axis=0)
-    faces   = np.concatenate(all_faces,  axis=0)
     return verts, normals, faces
 
 
@@ -195,7 +198,7 @@ def _build_glb(
                 "metallicFactor": 0.0,
                 "roughnessFactor": 0.65,
             },
-            "doubleSided": False,
+            "doubleSided": True,
         }],
         "accessors": [
             {   # 0 — positions
@@ -307,7 +310,7 @@ def _build_glb_multi(
                 "metallicFactor": 0.0,
                 "roughnessFactor": 0.65,
             },
-            "doubleSided": False,
+            "doubleSided": True,
         })
         mesh_idx = len(meshes)
         meshes.append({

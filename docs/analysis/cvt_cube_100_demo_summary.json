@@ -1,0 +1,15 @@
+{
+  "manifest_json": "viewer/public/data/cvt_cube_100_demo/manifest.json",
+  "iterations_requested": 12,
+  "num_seeds": 100,
+  "sample_count": 24000,
+  "initial_loss": 12.019983916289616,
+  "final_loss": 7.012922543650886,
+  "loss_drop": 5.007061372638731,
+  "loss_drop_percent": 41.65614037014729,
+  "initial_empty_cells": 0,
+  "final_empty_cells": 0,
+  "initial_sample_count_cv": 1.1386508220013916,
+  "final_sample_count_cv": 0.48250179907551755,
+  "checkpoint_count": 13
+}

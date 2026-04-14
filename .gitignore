@@ -21,3 +21,7 @@ wheels/
 
 # Pipeline outputs
 /outputs/
+
+# Local experiment artifacts
+/experiment_output/
+/viewer/public/data/
