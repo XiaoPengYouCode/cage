@@ -1,27 +1,26 @@
 """Steps 7 & 8 — Restricted Voronoi inside an axis-aligned box + edge extraction.
 
-Step 7: Build Voronoi diagram clipped to the aligned bounding box.
-  Method:
-    1. scipy.spatial.Voronoi on seed points.
-    2. Mirror (reflect) all seed points across each of the 6 box faces so that
-       near-boundary cells gain finite Voronoi vertices.
-    3. For every real seed's Voronoi region: collect its vertices, then clip the
-       convex hull of those vertices to the box half-spaces to get the final
-       bounded cell.
+Step 7 builds each cell from its physical support planes:
+  1. Real Voronoi bisector planes against Delaunay neighbors.
+  2. The 6 box planes.
+  3. scipy.spatial.HalfspaceIntersection to solve the bounded convex polyhedron.
+  4. Each face loop is recovered directly from the support plane it lies on.
 
-Step 8: Extract all unique edges from the clipped cells.
-  We first recover each cell's *true polygonal faces* by merging coplanar hull
-  triangles. Edges are then taken from those face loops instead of from the raw
-  triangulation. This keeps real Voronoi / box-boundary edges while removing
-  triangulation diagonals introduced by ConvexHull on flat box-clipped faces.
+This avoids the earlier failure mode where a clipped polygonal face was first
+triangulated and Step 8 then had to guess which triangle edges were fake. We
+still emit triangle simplices for GLB rendering, but those triangles are now a
+pure visualization detail derived from the already-recovered polygon faces.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import scipy.spatial
+
+from topopt_sampling.neighbors import build_delaunay_neighbor_map
 
 # Visually distinct HSL-derived colours for up to ~32 cells, then it cycles
 _CELL_PALETTE = [
@@ -43,144 +42,111 @@ _CELL_PALETTE = [
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _mirror_seeds(seeds: np.ndarray, box_min: np.ndarray, box_max: np.ndarray) -> np.ndarray:
-    """Return the 6-face mirror images of *seeds* appended to *seeds*.
 
-    Each of the 6 faces produces a full copy of the seed array reflected
-    across that face plane.  The mirrors are only used to produce finite
-    Voronoi vertices near boundaries; they are discarded afterward.
-    """
-    reflected = [seeds]
-    for axis in range(3):
-        lo, hi = box_min[axis], box_max[axis]
-        r_lo = seeds.copy()
-        r_lo[:, axis] = 2 * lo - seeds[:, axis]
-        r_hi = seeds.copy()
-        r_hi[:, axis] = 2 * hi - seeds[:, axis]
-        reflected.extend([r_lo, r_hi])
-    return np.vstack(reflected)
+@dataclass(frozen=True)
+class PlaneSupport:
+    label: str
+    equation: np.ndarray
 
 
-def _clip_convex_hull_to_box(
-    vertices: np.ndarray,
-    box_min: np.ndarray,
-    box_max: np.ndarray,
-) -> np.ndarray | None:
-    """Clip a convex polytope (given by Voronoi *vertices*) to the box.
-
-    Uses scipy.spatial.HalfspaceIntersection with:
-      - The 6 box face half-spaces
-      - The Voronoi cell half-spaces (one per face of the cell's convex hull)
-
-    The feasible interior point is the seed point (centroid of vertices),
-    guaranteed to be inside both the cell and (after clipping) the box.
-
-    Returns vertex array of clipped cell, or None if degenerate.
-    """
-    # Feasible interior point = centroid of Voronoi vertices (always inside cell)
-    interior = vertices.mean(axis=0)
-
-    # Clamp interior point to strictly inside the box
-    interior = np.clip(interior, box_min + 1e-6, box_max - 1e-6)
-
-    # Build Voronoi cell half-spaces from its convex hull faces
-    # scipy ConvexHull equations: [normal | offset] with normal·x + offset ≤ 0
-    try:
-        cell_hull = scipy.spatial.ConvexHull(vertices)
-    except Exception:
-        return None
-    cell_hs = cell_hull.equations   # (F, 4)
-
-    # Build box half-spaces: n·x + d ≤ 0
-    box_hs = []
-    for axis in range(3):
-        h_pos = np.zeros(4)
-        h_pos[axis] = 1.0
-        h_pos[3] = -box_max[axis]
-        box_hs.append(h_pos)
-
-        h_neg = np.zeros(4)
-        h_neg[axis] = -1.0
-        h_neg[3] = box_min[axis]
-        box_hs.append(h_neg)
-    box_hs = np.array(box_hs)  # (6, 4)
-
-    halfspaces = np.vstack([cell_hs, box_hs])
-
-    # Find a feasible interior point that satisfies ALL half-spaces.
-    # The centroid of the Voronoi vertices may lie outside the box (e.g. when
-    # the seed itself is slightly outside due to sub-voxel jitter in sampling).
-    # Strategy: try the centroid first; if it fails, try the seed point clamped
-    # to the box; finally fall back to the Chebyshev centre via linear program.
-    def _is_feasible(pt: np.ndarray) -> bool:
-        return bool(np.all(halfspaces[:, :3] @ pt + halfspaces[:, 3] <= 1e-9))
-
-    feasible_pt = None
-    if _is_feasible(interior):
-        feasible_pt = interior
-    else:
-        # Try box centre
-        box_centre = (box_min + box_max) / 2.0
-        if _is_feasible(box_centre):
-            feasible_pt = box_centre
-        else:
-            # Chebyshev centre: largest inscribed sphere — always exists for
-            # non-empty bounded polytope
-            try:
-                from scipy.optimize import linprog
-                n_hs = halfspaces.shape[0]
-                norms = np.linalg.norm(halfspaces[:, :3], axis=1, keepdims=True)
-                A = np.hstack([halfspaces[:, :3] / norms, np.ones((n_hs, 1))])
-                b = -halfspaces[:, 3] / norms.ravel()
-                # Minimise -r  (maximise inscribed sphere radius r)
-                c = np.zeros(4); c[3] = -1.0
-                res = linprog(c, A_ub=A, b_ub=b,
-                              bounds=[(None, None)] * 3 + [(0, None)],
-                              method="highs")
-                if res.success and res.x[3] > 1e-9:
-                    candidate = res.x[:3]
-                    if _is_feasible(candidate):
-                        feasible_pt = candidate
-            except Exception:
-                pass
-
-    if feasible_pt is None:
-        return None
-
-    try:
-        hs_intersection = scipy.spatial.HalfspaceIntersection(halfspaces, feasible_pt)
-        pts = hs_intersection.intersections
-        if len(pts) < 4:
-            return None
-        hull = scipy.spatial.ConvexHull(pts)
-        return pts[hull.vertices].astype(np.float32)
-    except Exception:
-        return None
-
-
-def _point_in_box(p: np.ndarray, box_min: np.ndarray, box_max: np.ndarray) -> bool:
-    return bool(np.all(p >= box_min - 1e-9) and np.all(p <= box_max + 1e-9))
+def _normalize_halfspace_equation(equation: np.ndarray) -> np.ndarray:
+    eq = np.asarray(equation, dtype=np.float64)
+    norm = float(np.linalg.norm(eq[:3]))
+    if norm <= 1e-12:
+        return eq.copy()
+    return eq / norm
 
 
 def _canonical_plane_equation(equation: np.ndarray) -> np.ndarray:
-    """Normalize a plane equation for stable coplanar facet grouping."""
-    eq = np.asarray(equation, dtype=np.float64)
-    normal = eq[:3]
-    norm = float(np.linalg.norm(normal))
-    if norm <= 1e-12:
-        return eq.copy()
-    eq = eq / norm
-    for value in eq:
-        if abs(value) <= 1e-12:
+    normalized = _normalize_halfspace_equation(equation)
+    for value in normalized:
+        if abs(float(value)) <= 1e-12:
             continue
         if value < 0:
-            eq = -eq
+            normalized = -normalized
         break
-    return eq
+    return normalized
+
+
+def _build_box_supports(box_min: np.ndarray, box_max: np.ndarray) -> tuple[PlaneSupport, ...]:
+    return (
+        PlaneSupport("box:x_min", _normalize_halfspace_equation(np.array([-1.0, 0.0, 0.0, box_min[0]], dtype=np.float64))),
+        PlaneSupport("box:x_max", _normalize_halfspace_equation(np.array([1.0, 0.0, 0.0, -box_max[0]], dtype=np.float64))),
+        PlaneSupport("box:y_min", _normalize_halfspace_equation(np.array([0.0, -1.0, 0.0, box_min[1]], dtype=np.float64))),
+        PlaneSupport("box:y_max", _normalize_halfspace_equation(np.array([0.0, 1.0, 0.0, -box_max[1]], dtype=np.float64))),
+        PlaneSupport("box:z_min", _normalize_halfspace_equation(np.array([0.0, 0.0, -1.0, box_min[2]], dtype=np.float64))),
+        PlaneSupport("box:z_max", _normalize_halfspace_equation(np.array([0.0, 0.0, 1.0, -box_max[2]], dtype=np.float64))),
+    )
+
+
+def _build_bisector_support(seed_i: np.ndarray, seed_j: np.ndarray, neighbor_id: int) -> PlaneSupport:
+    normal = 2.0 * (seed_j - seed_i)
+    offset = float(np.dot(seed_i, seed_i) - np.dot(seed_j, seed_j))
+    equation = _normalize_halfspace_equation(np.concatenate([normal, [offset]]))
+    return PlaneSupport(label=f"bisector:{neighbor_id}", equation=equation)
+
+
+def _is_feasible_point(halfspaces: np.ndarray, point: np.ndarray, tol: float = 1e-9) -> bool:
+    return bool(np.all(halfspaces[:, :3] @ point + halfspaces[:, 3] <= tol))
+
+
+def _find_feasible_point(
+    halfspaces: np.ndarray,
+    seed_point: np.ndarray,
+    box_min: np.ndarray,
+    box_max: np.ndarray,
+) -> np.ndarray | None:
+    candidate = np.clip(seed_point.astype(np.float64), box_min + 1e-6, box_max - 1e-6)
+    if _is_feasible_point(halfspaces, candidate):
+        return candidate
+
+    box_centre = (box_min + box_max) / 2.0
+    if _is_feasible_point(halfspaces, box_centre):
+        return box_centre
+
+    try:
+        from scipy.optimize import linprog
+
+        norms = np.linalg.norm(halfspaces[:, :3], axis=1, keepdims=True)
+        safe_norms = np.where(norms <= 1e-12, 1.0, norms)
+        a_ub = np.hstack([halfspaces[:, :3] / safe_norms, np.ones((halfspaces.shape[0], 1))])
+        b_ub = -halfspaces[:, 3] / safe_norms.ravel()
+        c_obj = np.array([0.0, 0.0, 0.0, -1.0], dtype=np.float64)
+        result = linprog(
+            c_obj,
+            A_ub=a_ub,
+            b_ub=b_ub,
+            bounds=[(None, None), (None, None), (None, None), (0.0, None)],
+            method="highs",
+        )
+        if result.success and result.x[3] > 1e-9:
+            candidate = result.x[:3]
+            if _is_feasible_point(halfspaces, candidate):
+                return candidate.astype(np.float64)
+    except Exception:
+        return None
+
+    return None
+
+
+def _dedupe_points(points: np.ndarray, tol: float = 1e-7) -> np.ndarray:
+    unique: list[np.ndarray] = []
+    seen: set[tuple[int, int, int]] = set()
+    scale = 1.0 / tol
+    for point in np.asarray(points, dtype=np.float64):
+        key = tuple(int(round(float(value) * scale)) for value in point)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(point.astype(np.float64))
+    if not unique:
+        return np.zeros((0, 3), dtype=np.float64)
+    return np.asarray(unique, dtype=np.float64)
 
 
 def _order_face_vertices(points: np.ndarray, vertex_ids: np.ndarray, normal: np.ndarray) -> np.ndarray:
     """Return ``vertex_ids`` ordered as a convex polygon on the face plane."""
+    vertex_ids = np.asarray(sorted(set(int(idx) for idx in vertex_ids)), dtype=np.int32)
     face_points = points[vertex_ids]
     centroid = face_points.mean(axis=0)
 
@@ -200,48 +166,146 @@ def _order_face_vertices(points: np.ndarray, vertex_ids: np.ndarray, normal: np.
     local = face_points - centroid
     angles = np.arctan2(local @ axis_v, local @ axis_u)
     order = np.argsort(angles)
-    return vertex_ids[order].astype(np.int32)
+    ordered = vertex_ids[order].astype(np.int32)
+
+    polygon = points[ordered]
+    accum = np.zeros(3, dtype=np.float64)
+    for idx in range(polygon.shape[0]):
+        accum += np.cross(polygon[idx], polygon[(idx + 1) % polygon.shape[0]])
+    if float(np.dot(accum, normal)) < 0:
+        ordered = ordered[::-1]
+    return ordered.astype(np.int32)
+
+
+def _polygon_area_vector(points: np.ndarray) -> np.ndarray:
+    accum = np.zeros(3, dtype=np.float64)
+    for idx in range(points.shape[0]):
+        accum += np.cross(points[idx], points[(idx + 1) % points.shape[0]])
+    return accum
 
 
 def _merge_coplanar_hull_faces(
     points: np.ndarray,
     simplices: np.ndarray,
     equations: np.ndarray,
-    tol: float = 1e-6,
+    plane_tol: float = 1e-6,
 ) -> np.ndarray:
-    """Merge hull triangles that lie on the same plane into polygonal faces."""
     if simplices.shape[0] == 0:
         return np.empty((0,), dtype=object)
 
     grouped: dict[tuple[float, float, float, float], dict[str, object]] = {}
     for simplex, equation in zip(simplices, equations):
         canonical = _canonical_plane_equation(equation)
-        key = tuple(np.round(canonical / tol) * tol)
-        group = grouped.setdefault(
-            key,
-            {
-                "vertex_ids": set(),
-                "normals": [],
-            },
-        )
-        group["vertex_ids"].update(int(idx) for idx in simplex)
-        group["normals"].append(canonical[:3])
+        key = tuple(np.round(canonical / plane_tol) * plane_tol)
+        group = grouped.setdefault(key, {"vertex_ids": set(), "normal": canonical[:3].copy()})
+        cast_ids: set[int] = group["vertex_ids"]  # type: ignore[assignment]
+        cast_ids.update(int(vertex_id) for vertex_id in simplex)
 
     faces = np.empty(len(grouped), dtype=object)
     for face_idx, group in enumerate(grouped.values()):
-        vertex_ids = np.array(sorted(group["vertex_ids"]), dtype=np.int32)
-        normal = np.mean(np.asarray(group["normals"], dtype=np.float64), axis=0)
-        normal /= max(float(np.linalg.norm(normal)), 1e-12)
+        vertex_ids = np.asarray(sorted(group["vertex_ids"]), dtype=np.int32)
+        normal = np.asarray(group["normal"], dtype=np.float64)
         faces[face_idx] = _order_face_vertices(points.astype(np.float64), vertex_ids, normal)
     return faces
 
 
 def _build_cell_faces(vertices: np.ndarray) -> np.ndarray:
-    """Rebuild polygonal faces for one convex cell from its hull."""
+    vertices = np.asarray(vertices, dtype=np.float64)
     if vertices.shape[0] < 4:
         return np.empty((0,), dtype=object)
-    hull = scipy.spatial.ConvexHull(vertices.astype(np.float64))
-    return _merge_coplanar_hull_faces(vertices.astype(np.float64), hull.simplices, hull.equations)
+
+    try:
+        hull = scipy.spatial.ConvexHull(vertices)
+    except Exception:
+        return np.empty((0,), dtype=object)
+
+    return _merge_coplanar_hull_faces(vertices, hull.simplices, hull.equations)
+
+
+def _build_faces_from_supports(
+    points: np.ndarray,
+    supports: tuple[PlaneSupport, ...],
+    plane_tol: float = 1e-6,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    faces: list[np.ndarray] = []
+    face_equations: list[np.ndarray] = []
+
+    for support in supports:
+        residual = np.abs(points @ support.equation[:3] + support.equation[3])
+        vertex_ids = np.flatnonzero(residual <= plane_tol)
+        if vertex_ids.shape[0] < 3:
+            continue
+
+        ordered = _order_face_vertices(points, vertex_ids.astype(np.int32), support.equation[:3])
+        if ordered.shape[0] < 3:
+            continue
+
+        area = np.linalg.norm(_polygon_area_vector(points[ordered]))
+        if area <= 1e-8:
+            continue
+
+        faces.append(ordered.astype(np.int32))
+        face_equations.append(support.equation.astype(np.float32))
+
+    return faces, face_equations
+
+
+def _triangulate_face_loops(face_loops: list[np.ndarray]) -> np.ndarray:
+    triangles: list[list[int]] = []
+    for face in face_loops:
+        loop = np.asarray(face, dtype=np.int32)
+        if loop.shape[0] < 3:
+            continue
+        for idx in range(1, loop.shape[0] - 1):
+            triangles.append([int(loop[0]), int(loop[idx]), int(loop[idx + 1])])
+    if not triangles:
+        return np.zeros((0, 3), dtype=np.int32)
+    return np.asarray(triangles, dtype=np.int32)
+
+
+def _build_polyhedral_cell(
+    seed_id: int,
+    seed_points: np.ndarray,
+    neighbor_ids: tuple[int, ...],
+    box_supports: tuple[PlaneSupport, ...],
+    box_min: np.ndarray,
+    box_max: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    seed_point = seed_points[seed_id].astype(np.float64)
+    bisector_supports = tuple(
+        _build_bisector_support(seed_point, seed_points[neighbor_id].astype(np.float64), int(neighbor_id))
+        for neighbor_id in neighbor_ids
+        if int(neighbor_id) != seed_id
+    )
+    supports = bisector_supports + box_supports
+    if not supports:
+        return None
+
+    halfspaces = np.asarray([support.equation for support in supports], dtype=np.float64)
+    feasible_point = _find_feasible_point(halfspaces, seed_point, box_min, box_max)
+    if feasible_point is None:
+        return None
+
+    try:
+        intersections = scipy.spatial.HalfspaceIntersection(halfspaces, feasible_point).intersections
+    except Exception:
+        return None
+
+    points = _dedupe_points(intersections)
+    if points.shape[0] < 4:
+        return None
+
+    faces, _ = _build_faces_from_supports(points, supports)
+    if not faces:
+        return None
+
+    simplices = _triangulate_face_loops(faces)
+
+    faces_arr = np.empty(len(faces), dtype=object)
+    for idx, face in enumerate(faces):
+        faces_arr[idx] = face.astype(np.int32)
+
+    return points.astype(np.float32), faces_arr, simplices.astype(np.int32)
 
 
 # ---------------------------------------------------------------------------
@@ -272,58 +336,32 @@ def build_box_voronoi(
     box_min = np.zeros(3, dtype=np.float64)
     box_max = np.array(grid_shape, dtype=np.float64) - 1  # inclusive voxel index range
 
-    # Mirror seeds across all 6 faces
-    all_seeds = _mirror_seeds(seed_points.astype(np.float64), box_min, box_max)
     n_real = len(seed_points)
-
-    vor = scipy.spatial.Voronoi(all_seeds)
+    neighbor_map = build_delaunay_neighbor_map(seed_points.astype(np.float64))
+    box_supports = _build_box_supports(box_min, box_max)
 
     cell_vertices_list = []
     cell_faces_list = []
     cell_simplices_list = []
 
     for i in range(n_real):
-        region_idx = vor.point_region[i]
-        region = vor.regions[region_idx]
+        neighbor_ids = tuple(int(neighbor_id) for neighbor_id in neighbor_map.get(i, tuple()) if int(neighbor_id) != i)
+        result = _build_polyhedral_cell(i, seed_points.astype(np.float64), neighbor_ids, box_supports, box_min, box_max)
 
-        # Skip if region is empty or contains infinite vertex (-1)
-        if not region:
+        if result is None:
+            fallback_neighbor_ids = tuple(j for j in range(n_real) if j != i)
+            result = _build_polyhedral_cell(i, seed_points.astype(np.float64), fallback_neighbor_ids, box_supports, box_min, box_max)
+
+        if result is None:
             cell_vertices_list.append(np.zeros((0, 3), dtype=np.float32))
             cell_faces_list.append(np.empty((0,), dtype=object))
             cell_simplices_list.append(np.zeros((0, 3), dtype=np.int32))
             continue
 
-        # Collect Voronoi vertices for this cell
-        if -1 in region:
-            # Mirror trick should have eliminated these; fall back gracefully
-            valid_indices = [v for v in region if v >= 0]
-            verts = vor.vertices[valid_indices] if valid_indices else np.empty((0, 3))
-        else:
-            verts = vor.vertices[np.array(region)]
-
-        if len(verts) < 4:
-            cell_vertices_list.append(np.zeros((0, 3), dtype=np.float32))
-            cell_faces_list.append(np.empty((0,), dtype=object))
-            cell_simplices_list.append(np.zeros((0, 3), dtype=np.int32))
-            continue
-
-        # Clip to box
-        clipped = _clip_convex_hull_to_box(verts, box_min, box_max)
-        if clipped is None or len(clipped) < 4:
-            cell_vertices_list.append(np.zeros((0, 3), dtype=np.float32))
-            cell_faces_list.append(np.empty((0,), dtype=object))
-            cell_simplices_list.append(np.zeros((0, 3), dtype=np.int32))
-            continue
-
-        try:
-            hull = scipy.spatial.ConvexHull(clipped)
-            cell_vertices_list.append(clipped.astype(np.float32))
-            cell_faces_list.append(_merge_coplanar_hull_faces(clipped, hull.simplices, hull.equations))
-            cell_simplices_list.append(hull.simplices.astype(np.int32))
-        except Exception:
-            cell_vertices_list.append(np.zeros((0, 3), dtype=np.float32))
-            cell_faces_list.append(np.empty((0,), dtype=object))
-            cell_simplices_list.append(np.zeros((0, 3), dtype=np.int32))
+        vertices, faces, simplices = result
+        cell_vertices_list.append(vertices.astype(np.float32))
+        cell_faces_list.append(faces)
+        cell_simplices_list.append(simplices.astype(np.int32))
 
     cell_vertices_arr = np.empty(n_real, dtype=object)
     cell_faces_arr = np.empty(n_real, dtype=object)
@@ -440,154 +478,52 @@ def export_voronoi_cells_glb(
 # Step 8 — Extract all edges
 # ---------------------------------------------------------------------------
 
-def _clip_segment_to_box(
-    p: np.ndarray,
-    d: np.ndarray,
-    box_min: np.ndarray,
-    box_max: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Clip the ray p + t*d to the box using slab method.
-
-    Returns (p0, p1) endpoints of the clipped segment inside the box, or None.
-    """
-    t_min, t_max = -np.inf, np.inf
-    for ax in range(3):
-        if abs(d[ax]) < 1e-12:
-            if p[ax] < box_min[ax] - 1e-9 or p[ax] > box_max[ax] + 1e-9:
-                return None
-        else:
-            t0 = (box_min[ax] - p[ax]) / d[ax]
-            t1 = (box_max[ax] - p[ax]) / d[ax]
-            if t0 > t1:
-                t0, t1 = t1, t0
-            t_min = max(t_min, t0)
-            t_max = min(t_max, t1)
-    if t_min > t_max + 1e-9:
-        return None
-    return p + t_min * d, p + t_max * d
-
-
 def extract_voronoi_edges(
     voronoi_npz_path: Path,
     output_path: Path,
 ) -> np.ndarray:
-    """Extract true Voronoi ridge edges directly from scipy.spatial.Voronoi.
+    """Extract Voronoi skeleton edges from polygonal face boundaries.
 
-    This is the mathematically correct approach: use vor.ridge_vertices, which
-    gives the actual polygon vertex loop for each Voronoi ridge (the shared face
-    between two adjacent cells). Adjacent vertex pairs in each loop are the real
-    ridge edges. This completely bypasses ConvexHull triangulation and therefore
-    produces zero triangulation-diagonal artefacts, on box faces or internally.
-
-    Ridges with infinite vertices (-1) are handled by shooting a ray from the
-    finite endpoint in the ridge direction and clipping it to the box.
+    Step 7 stores each clipped convex cell as vertices plus ordered face loops.
+    Step 8 walks those loops and emits the unique line segments on their
+    boundaries, which are exactly the one-dimensional features of the
+    restricted Voronoi complex.
 
     Returns / saves ``edges`` : float32 (E, 2, 3) — each row is (p0, p1).
     """
     data = np.load(str(voronoi_npz_path), allow_pickle=True)
-    seed_points: np.ndarray = data["seed_points"].astype(np.float64)
-    box_min: np.ndarray = data["box_min"].astype(np.float64)
-    box_max: np.ndarray = data["box_max"].astype(np.float64)
-    n_real = int(data["n_cells"])
-
-    # Rebuild Voronoi (fast — same deterministic result as Step 7)
-    all_seeds = _mirror_seeds(seed_points, box_min, box_max)
-    vor = scipy.spatial.Voronoi(all_seeds)
+    cell_vertices_arr: np.ndarray = data["cell_vertices"]
+    cell_faces_arr: np.ndarray | None = data["cell_faces"] if "cell_faces" in data.files else None
 
     edge_set: dict[tuple, tuple] = {}
-    n_inf_clipped = 0
-    n_outside = 0
 
-    for (i0, i1), ridge_verts in zip(vor.ridge_points, vor.ridge_vertices):
-        # Keep ridges where at least one endpoint is a real seed.
-        # Ridges between a real seed and a mirror seed produce the boundary
-        # edges of cells that touch the box faces / edges / corners.
-        if i0 >= n_real and i1 >= n_real:
+    for cell_idx, verts in enumerate(cell_vertices_arr):
+        if verts.shape[0] < 2:
             continue
 
-        ridge_verts = list(ridge_verts)
+        if cell_faces_arr is not None:
+            faces = cell_faces_arr[cell_idx]
+        else:
+            faces = _build_cell_faces(verts)
 
-        if -1 in ridge_verts:
-            # Ridge has an infinite vertex — clip the ray to the box
-            finite_idx = [v for v in ridge_verts if v >= 0]
-            if not finite_idx:
+        for face in faces:
+            loop = np.asarray(face, dtype=np.int32)
+            if loop.shape[0] < 2:
                 continue
-            # Direction: perpendicular to the line joining the two seeds,
-            # in the plane of the ridge (midpoint-normal direction)
-            s0 = all_seeds[i0]
-            s1 = all_seeds[i1]
-            midpoint = (s0 + s1) / 2.0
-            seed_dir = s1 - s0
-            # Ridge direction: cross product of seed_dir with any ridge edge dir
-            finite_pts = vor.vertices[finite_idx]
-            if len(finite_pts) >= 2:
-                edge_dir = finite_pts[1] - finite_pts[0]
-                ray_dir = np.cross(seed_dir, edge_dir)
-            else:
-                # Only one finite vertex — use perpendicular in the seed plane
-                ray_dir = np.array([seed_dir[1], -seed_dir[0], 0.0])
-            ray_norm = np.linalg.norm(ray_dir)
-            if ray_norm < 1e-12:
-                continue
-            ray_dir /= ray_norm
-            # Shoot from each finite vertex pair, then from finite→infinity
-            for fi in range(len(finite_idx) - 1):
-                p0 = vor.vertices[finite_idx[fi]]
-                p1 = vor.vertices[finite_idx[fi + 1]]
-                _add_edge(p0, p1, box_min, box_max, edge_set)
-            # Clip the infinite ray
-            p_start = vor.vertices[finite_idx[-1]]
-            clipped = _clip_segment_to_box(p_start, ray_dir, box_min, box_max)
-            if clipped is not None:
-                _add_edge(clipped[0], clipped[1], box_min, box_max, edge_set)
-                n_inf_clipped += 1
-            continue
-
-        # All finite vertices — extract adjacent pairs in the polygon loop
-        pts = vor.vertices[ridge_verts]
-
-        # Order the polygon vertices (they may be unordered from scipy)
-        if len(ridge_verts) >= 3:
-            centroid = pts.mean(axis=0)
-            normal = all_seeds[i1] - all_seeds[i0]
-            normal /= max(np.linalg.norm(normal), 1e-12)
-            helper = np.array([1.0, 0.0, 0.0])
-            if abs(np.dot(helper, normal)) > 0.9:
-                helper = np.array([0.0, 1.0, 0.0])
-            u = np.cross(normal, helper)
-            u /= max(np.linalg.norm(u), 1e-12)
-            v = np.cross(normal, u)
-            local = pts - centroid
-            angles = np.arctan2(local @ v, local @ u)
-            order = np.argsort(angles)
-            pts = pts[order]
-
-        for k in range(len(pts)):
-            p0 = pts[k]
-            p1 = pts[(k + 1) % len(pts)]
-            _add_edge(p0, p1, box_min, box_max, edge_set)
+            for edge_idx in range(loop.shape[0]):
+                p0 = verts[int(loop[edge_idx])].astype(np.float64)
+                p1 = verts[int(loop[(edge_idx + 1) % loop.shape[0]])].astype(np.float64)
+                if np.linalg.norm(p1 - p0) < 1e-4:
+                    continue
+                key = tuple(sorted([
+                    tuple(np.round(p0, 4)),
+                    tuple(np.round(p1, 4)),
+                ]))
+                edge_set.setdefault(key, (p0.astype(np.float32), p1.astype(np.float32)))
 
     edges = np.array(list(edge_set.values()), dtype=np.float32) if edge_set else np.zeros((0, 2, 3), dtype=np.float32)
-    print(f"  {len(edges)} ridge edges  ({n_inf_clipped} infinite ridges clipped to box, {n_outside} outside box skipped)")
+    print(f"  {len(edges)} face-boundary edges")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(str(output_path), edges=edges)
     return edges
-
-
-def _add_edge(
-    p0: np.ndarray,
-    p1: np.ndarray,
-    box_min: np.ndarray,
-    box_max: np.ndarray,
-    edge_set: dict,
-    tol: float = 1e-4,
-) -> None:
-    """Clip edge to box and add to edge_set if it has non-zero length inside."""
-    # Both points must be inside (or on) the box
-    p0c = np.clip(p0, box_min, box_max)
-    p1c = np.clip(p1, box_min, box_max)
-    if np.linalg.norm(p1c - p0c) < tol:
-        return
-    key = tuple(sorted([tuple(np.round(p0c, 4)), tuple(np.round(p1c, 4))]))
-    edge_set.setdefault(key, (p0c.astype(np.float32), p1c.astype(np.float32)))

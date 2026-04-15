@@ -54,12 +54,6 @@ const MODELS = {
     mode: 'mesh',
     color: new THREE.Color(0.45, 0.72, 0.90),
   },
-  '681_voronoi_cells_seeds6_cvt1': {
-    url: '/data/681_voronoi_cells_seeds6_cvt1.glb',
-    label: '681 — Voronoi cells (seeds=6, cvt=1)',
-    group: 'Debug',
-    mode: 'mesh',
-  },
 };
 
 // ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@ def build_annular_cylinder_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--height-cm",
         type=float,
-        default=1.0,
+        default=2.0,
         help="Cylinder height in centimeters.",
     )
     parser.add_argument(

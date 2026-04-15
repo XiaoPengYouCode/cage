@@ -32,14 +32,14 @@ modules = [
     },
     {
         "title": "受限 Voronoi\n图构建",
-        "subtitle": "HalfspaceIntersection\n共面面合并",
+        "subtitle": "HalfspaceIntersection\n支持面重建",
         "params": r"$\mathcal{B}$",
         "color": "#F9E79F",
         "x": 6.3,
     },
     {
         "title": "Voronoi\n脊线提取",
-        "subtitle": "ridge_vertices\n有序顶点环",
+        "subtitle": "面边界环\n全局去重",
         "params": r"$\mathcal{E}_{\mathrm{ridge}}$",
         "color": "#FAD7A0",
         "x": 9.3,

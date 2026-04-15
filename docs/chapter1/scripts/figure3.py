@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "src"))
 import _font_setup  # noqa: F401
 import numpy as np
 import matplotlib.pyplot as plt
-from matlab2stl_pipeline.box_voronoi import _mirror_seeds, _clip_convex_hull_to_box
+from matlab2stl_pipeline.cvt_relaxation import _cell_geometric_centroid, _mirror_seeds
 import scipy.spatial
 
 ROOT = Path(__file__).parents[3]
@@ -38,16 +38,9 @@ for it in range(K):
     vor = scipy.spatial.Voronoi(all_seeds)
     new_seeds = seeds.copy()
     for i in range(N):
-        region_idx = vor.point_region[i]
-        region = vor.regions[region_idx]
-        if not region or -1 in region:
-            continue
-        verts = vor.vertices[np.array(region)]
-        if len(verts) < 4:
-            continue
-        clipped = _clip_convex_hull_to_box(verts, box_min, box_max)
-        if clipped is not None and len(clipped) >= 4:
-            new_seeds[i] = clipped.mean(axis=0)
+        centroid = _cell_geometric_centroid(vor, i, box_min, box_max)
+        if centroid is not None:
+            new_seeds[i] = centroid
     disp = np.max(np.linalg.norm(new_seeds - seeds, axis=1))
     displacements.append(disp)
     seeds = new_seeds

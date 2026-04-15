@@ -17,7 +17,7 @@
 1. **密度场预处理与概率采样**：构建概率场，逆变换采样初始种子点；
 2. **Lloyd 迭代 CVT**：在设计域内迭代，使种子点收敛至各自 Voronoi 单元的几何质心；
 3. **受限 Voronoi 图构建**：将收敛的 Voronoi 单元裁剪至包围盒内，重建多面体面结构；
-4. **Voronoi 脊线提取**：直接利用 Voronoi 图的拓扑数据结构提取真实脊线段集合；
+4. **Voronoi 脊线提取**：沿多面体面的边界环提取一维骨架线段集合；
 5. **骨架体素化与形态学膨胀**：将脊线光栅化为体素场，以球形结构元素赋予支柱厚度；
 6. **Marching Cubes 网格生成**：对平滑后的二值场提取等值面三角网格并修正法向量。
 
@@ -160,20 +160,34 @@ $$
 \tag{1.11}
 $$
 
-对第 $i$ 个种子点，其 Voronoi 单元由以下半空间系统的交集给出：与每个相邻种子 $\mathbf{s}_j$（$j \neq i$，$j < N$）之间的垂直平分超平面确定的半空间：
+对第 $i$ 个种子点，不再显式构造全局 Voronoi 图，而是先由三维 Delaunay 四面体剖分确定与其相邻的种子集合 $\mathcal{N}(i)$。Delaunay 邻接与 Voronoi 面一一对应，因此仅需为 $j \in \mathcal{N}(i)$ 构造垂直平分超平面即可完整描述该单元。对应半空间写为
 
 $$
-(\mathbf{s}_j - \mathbf{s}_i)^\top \mathbf{x} \leq \frac{\|\mathbf{s}_j\|^2 - \|\mathbf{s}_i\|^2}{2}
+(\mathbf{s}_j - \mathbf{s}_i)^\top \mathbf{x} \leq \frac{\|\mathbf{s}_j\|^2 - \|\mathbf{s}_i\|^2}{2}, \quad j \in \mathcal{N}(i)
 \tag{1.12}
 $$
 
-将全部 Voronoi 单元半空间与包围盒半空间 $\mathcal{H}_{\mathcal{B}}$ 合并后，调用 `scipy.spatial.HalfspaceIntersection` 求解半空间交集多面体，得到裁剪顶点集 $\mathcal{V}_i^{\mathrm{clip}}$。
+将上述 Voronoi 半空间与包围盒半空间 $\mathcal{H}_{\mathcal{B}}$ 合并后，调用 `scipy.spatial.HalfspaceIntersection` 直接求解受限单元的凸多面体交集，得到裁剪顶点集 $\mathcal{V}_i^{\mathrm{clip}}$。这一构造将单元几何完全建立在支持半空间上，避免了先生成无界 Voronoi 区域再做几何补救的额外步骤。
 
-### 1.4.2 共面三角形合并
+### 1.4.2 支持面驱动的面重建
 
-`HalfspaceIntersection` 返回多面体顶点集后，需重建多面体的面结构以供后续使用。对顶点集直接做凸包（`ConvexHull`）三角剖分时，共面的多边形会被剖分为若干三角形——这些三角剖分对角线不存在于真实的 Voronoi 图中，若不消除将在后续骨架提取中引入虚假结构杆件。
+`HalfspaceIntersection` 返回的是多面体顶点集，后续骨架提取还需要有序的面边界环。为此，本方法不再依赖 `ConvexHull` 的三角剖分结果来反推真实面，而是直接回到单元的支持面集合：Delaunay 邻接对应的 Voronoi 平分面以及包围盒的 6 个面。
 
-为此，对 `ConvexHull` 输出的所有三角面片按法向量方向聚类：法向量夹角小于阈值（$5°$）且共享棱的三角形视为共面，将其合并为一个多边形面（coplanar merge）。合并后，对各多边形顶点以两种子点连线方向为法轴做极角排序（详见第 1.5.3 节），得到有序顶点环。这一步骤保证从面边界提取的棱与真实 Voronoi 脊线完全对应。
+设第 $k$ 个支持面方程为
+
+$$
+\mathbf{n}_k^\top \mathbf{x} + d_k = 0
+\tag{1.13}
+$$
+
+对每个支持面，筛选满足
+
+$$
+\left| \mathbf{n}_k^\top \mathbf{v} + d_k \right| \leq \tau
+\tag{1.14}
+$$
+
+的全部顶点 $\mathbf{v} \in \mathcal{V}_i^{\mathrm{clip}}$，其中 $\tau$ 为数值容差。若顶点数不少于 3，则这些顶点构成该支持面上的一个真实多边形面。再以 $\mathbf{n}_k$ 为法向量，在该平面内建立局部正交基，对顶点绕面心做极角排序，即可得到有序面边界环。这样恢复出的面天然对应真实的 Voronoi 面或包围盒截面，不再包含三角剖分对角线。
 
 图 1-5 展示了裁剪后各 Voronoi 单元的三维形态（每个单元以不同颜色渲染），图 1-6 给出了 CVT 前后单元体积分布的对比，定量展示了均匀化效果。
 
@@ -187,61 +201,58 @@ $$
 
 ### 1.5.1 脊线的数学定义
 
-在三维 Voronoi 图中，**脊线**（ridge）是三个或更多 Voronoi 单元的公共边界线段——亦即两个相邻单元共享面（Voronoi 面，即多边形）的边界棱。脊线网络构成 Voronoi 图的一维骨架，其拓扑结构直接反映种子点的邻近关系。
+在三维受限 Voronoi 图中，**脊线**（ridge）是受限多面体边界上的一维线段，即两个激活支持面的交线在某个 Voronoi 单元上的有限区间。按支持面类型不同，脊线可分为三类：Voronoi 平分面与 Voronoi 平分面的交线、Voronoi 平分面与包围盒面的交线，以及包围盒两面的交线。三类线段共同构成最终晶格骨架。
 
-`scipy.spatial.Voronoi` 提供以下原始数据结构：
-
-- `vor.ridge_vertices`：每条脊线对应的顶点索引列表（$-1$ 表示无穷远顶点）；
-- `vor.ridge_points`：生成该脊线的两个相邻种子点索引对 $(i, j)$；
-- `vor.vertices`：全部 Voronoi 顶点的三维坐标数组。
-
-脊线 $(i, j)$ 的顶点索引列表描述了分隔 $V_i$ 与 $V_j$ 的 Voronoi 面（多边形）的完整顶点环，从而包含了该面所有棱边的信息。
-
-**关键认识**：直接使用 `vor.ridge_vertices` 提取边集，完全绕过凸包三角剖分，从根本上消除了三角剖分对角线伪影。这是本节方法相对于先构建凸包再提取棱边的传统路线在几何正确性上的本质优势。
-
-### 1.5.2 有效脊线筛选
-
-由于引入了镜像种子扩展，`vor.ridge_points` 中包含真实种子与镜像种子之间的脊线，以及两个镜像种子之间的脊线。前者对应包围盒边界处单元的边缘棱，是晶格在盒面上的实体结构，应当保留；后者完全在包围盒外部，应排除：
+对第 $i$ 个单元的任一有序面边界环，记其顶点序列为
 
 $$
-\mathcal{R}_{\mathrm{valid}} = \left\{ (i, j, \mathcal{L}) \in \mathcal{R} \;\Big|\; i < N \;\text{ or }\; j < N \right\}
-\tag{1.13}
-$$
-
-其中 $N$ 为真实种子点数，$\mathcal{L}$ 为对应的顶点索引列表，$\mathcal{R}$ 为所有脊线的集合。条件"$i < N$ **或** $j < N$"的含义是：只要两个相邻种子中至少有一个是真实种子（即索引小于 $N$），该脊线便属于真实 Voronoi 图的一部分。
-
-### 1.5.3 多边形顶点极角排序与边提取
-
-对顶点列表中无 $-1$ 的有限脊线，顶点集 $\{v_0, v_1, \dots, v_{m-1}\}$ 构成一个平面凸多边形。为正确提取相邻边，需将顶点排列为有序多边形环。
-
-以两相邻种子点的连线方向 $\hat{\mathbf{n}} = (\mathbf{s}_j - \mathbf{s}_i)/\|\mathbf{s}_j - \mathbf{s}_i\|$ 为多边形法向量（法向量垂直于 Voronoi 面所在平面），在多边形平面内选取两个正交基向量 $(\hat{\mathbf{u}}, \hat{\mathbf{v}})$，计算各顶点相对于多边形质心 $\bar{\mathbf{v}} = \frac{1}{m}\sum_k \mathbf{v}_k$ 的极角：
-
-$$
-\theta_k = \mathrm{atan2}\!\left((\mathbf{v}_k - \bar{\mathbf{v}}) \cdot \hat{\mathbf{v}},\; (\mathbf{v}_k - \bar{\mathbf{v}}) \cdot \hat{\mathbf{u}}\right)
-\tag{1.14}
-$$
-
-按 $\theta_k$ 升序排列顶点后，提取相邻顶点对作为脊线边段集合：
-
-$$
-\mathcal{E}_{\mathrm{ridge}} = \bigcup_{\text{ridge} \in \mathcal{R}_{\mathrm{valid}}} \left\{ \left(\mathbf{v}_{k},\; \mathbf{v}_{(k+1) \bmod m}\right) \;\Big|\; k = 0, \dots, m-1 \right\}
+\partial F_i^{(k)} = \left(\mathbf{v}_0, \mathbf{v}_1, \dots, \mathbf{v}_{m-1}\right)
 \tag{1.15}
 $$
 
-集合 $\mathcal{E}_{\mathrm{ridge}}$ 即为晶格骨架的线段网络。由于每条脊线仅处理一次，多边形各边不会重复计入，边集不存在冗余。
-
-### 1.5.4 无穷顶点裁剪
-
-当 `ridge_vertices` 中出现 $-1$ 时，对应脊线为半无穷射线，表明与其相邻的两个 Voronoi 单元之间的公共面在设计域内没有封闭的有限顶点。以有限端顶点 $\mathbf{v}_0$ 为起点，以无穷远方向 $\hat{\mathbf{d}}$ 为射线方向，采用切片法（slab method）将射线裁剪至包围盒面：
+则该面的全部边界线段由相邻顶点对给出：
 
 $$
-\mathbf{v}_\infty = \mathbf{v}_0 + t^* \cdot \hat{\mathbf{d}}, \quad t^* = \min\left\{ t > 0 \;\Big|\; \mathbf{v}_0 + t\hat{\mathbf{d}} \in \partial\mathcal{B} \right\}
+\mathcal{E}_i^{(k)} = \left\{ \left(\mathbf{v}_\ell,\; \mathbf{v}_{(\ell+1)\bmod m}\right)\; \middle|\; \ell = 0, \dots, m-1 \right\}
 \tag{1.16}
 $$
 
-对三对轴对齐平面（$x = x_{\min/\max}$，$y = y_{\min/\max}$，$z = z_{\min/\max}$）依次求解参数 $t_\alpha = (x_\alpha^{\max/\min} - v_{0,\alpha}) / d_\alpha$，取所有正值中的最小值即为裁剪点 $t^*$。无穷远顶点 $\mathbf{v}_\infty$ 位于包围盒面上，裁剪后的线段 $(\mathbf{v}_0, \mathbf{v}_\infty)$ 加入 $\mathcal{E}_{\mathrm{ridge}}$。
+全局骨架边集即为全部单元面边界线段的并集去重结果。由于面边界环本身已是支持面意义下的真实多边形边界，因此该过程不会引入额外伪边。
 
-图 1-7 展示了最终提取的脊线网络三维形态，图 1-8 给出每个种子点所连接脊线数（度数）的分布，定量反映晶格节点的连通性。CVT 迭代后度数分布趋于集中，均值约为 14，与三维 Voronoi 图理论期望相符。
+### 1.5.2 面边界排序与局部一致性
+
+对任一面 $F_i^{(k)}$，其顶点集一般无序。记面心为
+
+$$
+\bar{\mathbf{v}} = \frac{1}{m}\sum_{\ell=0}^{m-1}\mathbf{v}_\ell
+\tag{1.17}
+$$
+
+在法向量 $\mathbf{n}_k$ 所在平面内构造局部正交基 $(\hat{\mathbf{u}}, \hat{\mathbf{v}})$，对各顶点计算极角
+
+$$
+\theta_\ell = \mathrm{atan2}\!\left((\mathbf{v}_\ell - \bar{\mathbf{v}})\cdot \hat{\mathbf{v}},\; (\mathbf{v}_\ell - \bar{\mathbf{v}})\cdot \hat{\mathbf{u}}\right)
+\tag{1.18}
+$$
+
+按 $\theta_\ell$ 升序排列即可得到面边界环。若排列方向与面法向量不一致，则将顶点序列反向，从而保证所有面环在局部法向量意义下具有一致绕行方向。
+
+### 1.5.3 全局去重与边集构建
+
+由于同一条脊线通常会在相邻单元的两个面环中各出现一次，需在全局范围内对边线段做唯一化。对任意线段 $(\mathbf{p}_0,\mathbf{p}_1)$，先将两个端点按词典序排序，再对端点坐标做固定精度量化，定义其规范键值：
+
+$$
+\kappa(\mathbf{p}_0,\mathbf{p}_1) = \mathrm{sort}\!\left(\mathrm{round}(\mathbf{p}_0),\mathrm{round}(\mathbf{p}_1)\right)
+\tag{1.19}
+$$
+
+以 $\kappa$ 为哈希键即可在线性时间内完成边集去重，得到全局唯一骨架线段集合 $\mathcal{E}_{\mathrm{ridge}}$。当两端点距离低于数值阈值时，将其视为退化边并剔除。
+
+### 1.5.4 与三角剖分的职责分离
+
+需要强调的是，本方法仍会对恢复出的多边形面做扇形三角化，但该步骤仅用于后续 GLB 可视化与多面体渲染，不再参与骨架判定。换言之，三角片只服务显示，骨架完全由支持面恢复的真实面边界给出。这样可以在保留现有渲染接口的同时，从算法源头消除盒面四边形、五边形等被三角剖分后产生的伪对角线。
+
+图 1-7 展示了最终提取的脊线网络三维形态，图 1-8 给出每个种子点邻接支持面的度数分布，定量反映晶格节点的连通性。CVT 迭代后度数分布趋于集中，说明单元邻接结构更均匀。
 
 ![图 1-7 Voronoi 脊线网络三维可视化](figures/1-7-ridge-network-3d.png)
 
