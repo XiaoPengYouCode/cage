@@ -18,3 +18,10 @@ wheels/
 
 # Large local-only datasets
 /datasets/topopt/fake_density_annular_cylinder_full.npz
+
+# Pipeline outputs
+/outputs/
+
+# Local experiment artifacts
+/experiment_output/
+/viewer/public/data/

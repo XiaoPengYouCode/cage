@@ -7,19 +7,24 @@ requires-python = ">=3.13"
 dependencies = [
     "matplotlib>=3.10.8",
     "numpy-stl>=3.2.0",
+    "scikit-image>=0.22",
     "scipy>=1.17.1",
+    "sfepy>=2025.4",
 ]
 
 [project.scripts]
+ct-reconstruction = "ct_reconstruction.cli:main"
+fem-analysis = "fem_analysis.cli:main"
 helix-voronoi = "helix_voronoi.cli:main"
 topopt-sampling = "topopt_sampling.cli:main"
+matlab2stl-pipeline = "matlab2stl_pipeline.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.11.4,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.uv]
 package = true
 
-[tool.uv.build-backend]
-module-name = ["helix_voronoi", "topopt_sampling"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/ct_reconstruction", "src/fem_analysis", "src/helix_voronoi", "src/topopt_sampling", "src/matlab2stl_pipeline"]
