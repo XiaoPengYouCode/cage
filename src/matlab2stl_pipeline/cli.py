@@ -148,6 +148,7 @@ def run_pipeline(
             output_glb_path=skel_glb,
             output_stl_path=skel_stl,
             smooth_sigma=mc_smooth_sigma,
+            aligned_npz_path=aligned_npz,
         )
         print(_green(f"  ✓ → {skel_glb}"))
         print(_green(f"  ✓ → {skel_stl}"))

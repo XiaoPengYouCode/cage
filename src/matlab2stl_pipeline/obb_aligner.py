@@ -53,6 +53,11 @@ def fit_obb(npz_path: Path, output_path: Path) -> dict:
     order = np.argsort(eigenvalues)[::-1]
     axes = eigenvectors[:, order].T.astype(np.float32)   # (3, 3), rows = axes
 
+    # Ensure axes forms a proper rotation matrix (det = +1), not a reflection.
+    # If det == -1, flipping one axis restores the right-hand orientation.
+    if np.linalg.det(axes) < 0:
+        axes[2] = -axes[2]
+
     # Project all points onto each axis to find half-extents
     projections = idx_centered @ axes.T    # (M, 3)
     half_extents_voxel = (projections.max(axis=0) - projections.min(axis=0)) / 2.0
@@ -157,6 +162,25 @@ def align_density(
     nx, ny, nz = new_shape
     origin_m = np.zeros(3, dtype=np.float32)  # aligned box starts at origin
 
+    # ------------------------------------------------------------------
+    # Inverse transform: aligned physical coords → original physical coords
+    #
+    # The alignment maps:  old_idx = axes.T @ (new_idx - new_center) + center_voxel
+    # In physical (m) space with voxel_size v:
+    #   p_aligned_m = new_idx * v   (origin at 0)
+    #   p_orig_m    = axes.T @ p_aligned_m + t_restore_m
+    # where:
+    #   t_restore_m = center_voxel * v - axes.T @ (new_center * v)
+    #
+    # Stored as:
+    #   restore_R : float64 (3,3) — rotation to apply to aligned vertices
+    #   restore_t : float64 (3,)  — translation to add after rotation
+    # ------------------------------------------------------------------
+    restore_R = axes.T.astype(np.float64)  # aligned→original rotation
+    new_center_m = new_center * voxel_size_xyz_m.astype(np.float64)
+    center_orig_m = center_voxel.astype(np.float64) * voxel_size_xyz_m.astype(np.float64)
+    restore_t = center_orig_m - restore_R @ new_center_m
+
     payload = {
         "density_milli": density_milli_aligned,
         "voxels": voxels_aligned,
@@ -168,6 +192,9 @@ def align_density(
         "result_type": np.array("obb_aligned", dtype=object),
         "density_kind": np.array("pseudo_density", dtype=object),
         "gamma": np.float32(gamma),
+        # Inverse transform back to original pose
+        "restore_R": restore_R,
+        "restore_t": restore_t,
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
