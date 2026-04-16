@@ -1,7 +1,9 @@
 """Batch runner: 3 seed counts × 4 CVT iterations = 12 experiments.
 
 Reuses existing Steps 1-5 outputs (raw_density, obb, aligned_density).
-Each experiment writes to outputs/matlab2stl_pipeline/batch/seeds{N}_cvt{K}/.
+Each experiment writes to outputs/matlab2stl_pipeline/experiment_1/seeds{N}_cvt{K}/.
+GLB and STL outputs are transformed back to the original pose via the inverse
+OBB transform stored in ALIGNED_NPZ.
 """
 import sys
 from pathlib import Path
@@ -17,9 +19,9 @@ from matlab2stl_pipeline.skeleton_voxelizer import voxelize_skeleton, mesh_from_
 SHARED = Path("outputs/matlab2stl_pipeline")
 ALIGNED_NPZ = SHARED / "681_aligned_density_gamma1.npz"
 
-BATCH_DIR = SHARED / "batch"
+EXPERIMENT_DIR = SHARED / "experiment_1"
 
-SEED_COUNTS = [300, 400, 500]
+SEED_COUNTS = [100, 200, 300]
 CVT_ITERS   = [1, 50, 100, 500]
 
 GAMMA            = 1.0
@@ -30,7 +32,7 @@ MC_SMOOTH_SIGMA  = 1.0
 
 def run_experiment(num_seeds: int, cvt_iters: int) -> None:
     tag = f"seeds{num_seeds}_cvt{cvt_iters}"
-    out = BATCH_DIR / tag
+    out = EXPERIMENT_DIR / tag
     out.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'='*60}")
@@ -74,7 +76,7 @@ def run_experiment(num_seeds: int, cvt_iters: int) -> None:
     )
     print(f"  ✓ → {skel_npz}")
 
-    # Step 10 — MC mesh
+    # Step 10 — MC mesh (with inverse OBB transform to restore original pose)
     print(f"\n[Step 10] Marching Cubes mesh export …")
     glb = out / "scaffold.glb"
     stl = out / "scaffold.stl"
@@ -83,6 +85,7 @@ def run_experiment(num_seeds: int, cvt_iters: int) -> None:
         output_glb_path=glb,
         output_stl_path=stl,
         smooth_sigma=MC_SMOOTH_SIGMA,
+        aligned_npz_path=ALIGNED_NPZ,
     )
     print(f"  ✓ → {glb}")
     print(f"  ✓ → {stl}")
@@ -98,4 +101,4 @@ if __name__ == "__main__":
             run_experiment(n, k)
 
     print(f"\n\033[1m\033[32m✓ All {total} experiments complete.\033[0m")
-    print(f"  Results: {BATCH_DIR}")
+    print(f"  Results: {EXPERIMENT_DIR}")

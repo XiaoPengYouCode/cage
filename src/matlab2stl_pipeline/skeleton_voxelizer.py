@@ -189,6 +189,7 @@ def mesh_from_voxels(
     output_stl_path: Path,
     color: tuple[float, float, float] = (0.55, 0.75, 0.45),
     smooth_sigma: float = 1.0,
+    aligned_npz_path: Path | None = None,
 ) -> None:
     """Run Marching Cubes on the Step 9 voxel grid and write GLB + binary STL.
 
@@ -201,11 +202,14 @@ def mesh_from_voxels(
     color             : RGB base color for the GLB material.
     smooth_sigma      : Gaussian pre-smoothing sigma in voxels before MC
                         (default 1.0; 0 = disabled).
+    aligned_npz_path  : if provided, read ``restore_R`` / ``restore_t`` from
+                        this NPZ and apply the inverse OBB transform to all
+                        mesh vertices/normals, restoring the original pose.
     """
     import sys
     import struct as _struct
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from ct_reconstruction.glb_export import voxels_to_glb, _marching_cubes_surface
+    from ct_reconstruction.glb_export import voxels_to_glb, _marching_cubes_surface, _build_glb
 
     data = np.load(str(skeleton_npz_path))
     occupancy: np.ndarray = data["voxels"].astype(bool)
@@ -215,22 +219,39 @@ def mesh_from_voxels(
     origin_mm = origin_m * 1e3
     spacing_mm = voxel_size_xyz_m * 1e3
 
+    # Run Marching Cubes once; results are in the aligned (OBB) frame
+    verts, normals, faces = _marching_cubes_surface(occupancy, origin_mm, spacing_mm, smooth_sigma)
+
+    # --- Apply inverse OBB transform if requested ---
+    if aligned_npz_path is not None:
+        aligned_data = np.load(str(aligned_npz_path))
+        if "restore_R" in aligned_data and "restore_t" in aligned_data:
+            restore_R = aligned_data["restore_R"].astype(np.float64)   # (3,3)
+            restore_t = aligned_data["restore_t"].astype(np.float64)   # (3,)
+            # restore_t is in metres; convert to mm for consistency with verts
+            restore_t_mm = restore_t * 1e3
+
+            verts_orig = (restore_R @ verts.T).T + restore_t_mm
+            # Normals are direction vectors — same rotation, no translation
+            normals_orig = (restore_R @ normals.T).T
+            # Re-normalise (rotation is orthogonal so this is a no-op numerically,
+            # but guards against float accumulation)
+            norms = np.linalg.norm(normals_orig, axis=1, keepdims=True)
+            norms = np.where(norms > 1e-12, norms, 1.0)
+            normals_orig = normals_orig / norms
+
+            verts   = verts_orig.astype(np.float32)
+            normals = normals_orig.astype(np.float32)
+            print(f"  Applied inverse OBB transform (restore to original pose)")
+
     # --- GLB ---
     output_glb_path.parent.mkdir(parents=True, exist_ok=True)
-    voxels_to_glb(
-        occupancy=occupancy,
-        origin=origin_mm,
-        spacing=spacing_mm,
-        output_path=output_glb_path,
-        color=color,
-        smooth_sigma=smooth_sigma,
-    )
+    glb_bytes = _build_glb(verts, normals, faces, color)
+    output_glb_path.write_bytes(glb_bytes)
     print(f"  GLB written → {output_glb_path}")
 
-    # --- STL (reuse the same MC parameters for consistency) ---
-    verts, normals, faces = _marching_cubes_surface(occupancy, origin_mm, spacing_mm, smooth_sigma)
+    # --- STL ---
     n_triangles = len(faces)
-
     output_stl_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_stl_path, "wb") as f:
         f.write(b"Binary STL exported by matlab2stl_pipeline" + b"\x00" * 38)
