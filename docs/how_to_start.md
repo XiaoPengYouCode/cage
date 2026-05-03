@@ -1,6 +1,6 @@
 # How To Start
 
-这份文档给第一次接手仓库的人用，目标是尽快把环境跑起来，并知道几个最常见的工作流怎么走。
+这份文档给第一次接手仓库的人用，目标是尽快把环境跑起来，并理解整条 pipeline 上每个节点的职责。
 
 ## 1. 安装 uv
 
@@ -18,13 +18,13 @@ Windows PowerShell：
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-安装完成后确认一下：
+安装完成后确认：
 
 ```bash
 uv --version
 ```
 
-如果你本机还没有 Python 3.13，可以直接让 `uv` 安装：
+如果本机还没有 Python 3.13，可以直接让 `uv` 安装：
 
 ```bash
 uv python install 3.13
@@ -32,79 +32,119 @@ uv python install 3.13
 
 这个仓库根目录有 `.python-version`，当前要求的版本是 `3.13`。
 
-## 2. 克隆仓库
-
-```bash
-git clone <your-repo-url>
-cd cage
-```
-
-如果你的目录名不是 `cage`，把后面的命令都放到仓库根目录执行就行。
-
-## 3. 同步环境
-
-第一次进入仓库后执行：
+## 2. 同步环境
 
 ```bash
 uv sync
-```
-
-这一步会根据 `pyproject.toml` 和 `uv.lock` 创建 `.venv` 并安装依赖。
-
-如果想确认解释器和环境已经就绪，可以执行：
-
-```bash
 uv run python --version
 uv run python -m unittest discover -s tests -v
 ```
 
-## 4. 先了解项目里有什么
+## 3. 项目全貌
 
-仓库主要有两条主线：
+仓库只有一条主线：
 
-- `helix_voronoi`
-  - 负责 Voronoi 单胞生成、预览渲染、STL 导出
-- `topopt_sampling`
-  - 负责把拓扑优化三维密度场转成概率分布，并随机采样 seed points
+```text
+fem_analysis
+  -> final pseudo-density / design density
+  -> topopt_sampling
+  -> Voronoi / restricted Voronoi
+  -> helix_voronoi or matlab2stl_pipeline
+  -> STL / GLB / viewer / analysis
+```
 
-几个常看目录：
+常看目录：
 
-- `src/helix_voronoi/`
+- `src/fem_analysis/`
 - `src/topopt_sampling/`
+- `src/helix_voronoi/`
+- `src/matlab2stl_pipeline/`
+- `src/ct_reconstruction/`
 - `datasets/`
 - `docs/assets/`
+- `viewer/`
 - `tests/`
 
-## 5. 典型工作流
+## 4. 最短 smoke path
 
-### 工作流 A：先跑一个默认预览图
+如果只是确认仓库能跑：
 
-这是最快的冒烟路径，适合确认环境、渲染链路和 CLI 都正常。
+```bash
+uv sync
+uv run fem-analysis fjw-preflight
+uv run python -m unittest discover -s tests -v
+```
+
+如果只想快速生成一个 Voronoi 预览图：
 
 ```bash
 uv run helix-voronoi
 ```
 
-默认会生成：
+默认输出：
 
 ```text
 docs/assets/voronoi_cube_3d.png
 ```
 
-如果你想换输出文件或者 seed 数量：
+## 5. Pipeline 节点说明
+
+### 节点 A：FJW workflow 生成伪密度
+
+先检查 Python-only runtime：
 
 ```bash
-uv run helix-voronoi \
-  --output docs/assets/my_preview.png \
-  --num-seeds 12 \
-  --row-seeds 116 55 49
+uv run fem-analysis fjw-preflight
 ```
 
-### 工作流 B：从 voxel demo 走完整条 density -> seed sampling 链路
+跑一轮 SfePy/Python smoke optimization：
 
-这条链路适合做 `topopt_sampling` 的主流程验证。
+```bash
+uv run fem-analysis fjw-optimize \
+  --backend sfepy \
+  --mode three-force \
+  --max-iterations 1 \
+  --num-time-steps 1 \
+  --sfepy-linear-solver scipy_iterative \
+  --run-directory runs/fjw_optimize
+```
 
-1. 生成体素输入：
+检查输出结构：
+
+```bash
+uv run fem-analysis fjw-validate --run-directory runs/fjw_optimize
+```
+
+如果这次运行要作为新的 Python/SfePy golden 来源：
+
+```bash
+uv run fem-analysis fjw-capture-golden \
+  --run-directory runs/fjw_optimize \
+  --golden-directory datasets/fjw_golden/captured_run
+```
+
+历史 `.inp` 生成只用于审计输入语义和对照旧资料：
+
+```bash
+uv run fem-analysis fjw-workflow --mode three-force --time-steps 3
+```
+
+有 Abaqus 的机器上，真实历史对照路径必须显式打开：
+
+```bash
+uv run fem-analysis fjw-optimize \
+  --backend abaqus \
+  --mode three-force \
+  --max-iterations 1 \
+  --num-time-steps 3 \
+  --real-run
+```
+
+### 节点 B：密度场采样 seed points
+
+正式 pipeline 中，这一步消费 FJW workflow 产出的最终伪密度。日常 smoke 可以用解析中空圆柱假密度场验证 `topopt_sampling` 节点。
+
+生成体素输入：
 
 ```bash
 uv run topopt-sampling generate-voxels \
@@ -115,7 +155,7 @@ uv run topopt-sampling generate-voxels \
   --inner-radius 50
 ```
 
-2. 生成假的拓扑优化密度结果：
+生成假密度结果：
 
 ```bash
 uv run topopt-sampling generate-fake-density \
@@ -123,16 +163,24 @@ uv run topopt-sampling generate-fake-density \
   --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
 ```
 
-3. 从密度场采样 seed points：
+从密度场采样 seed points：
 
 ```bash
 uv run topopt-sampling sample-seeds \
   datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
   --num-seeds 2000 \
+  --gamma 1.0 \
+  --rng-seed 42 \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
-4. 生成总览图：
+这一步最常调的参数：
+
+- `--num-seeds`：采样点数量
+- `--gamma`：密度转概率时的权重指数
+- `--rng-seed`：随机采样种子
+
+生成总览图：
 
 ```bash
 uv run topopt-sampling render-overview \
@@ -141,33 +189,32 @@ uv run topopt-sampling render-overview \
   --output docs/assets/topopt_sampling_pipeline_overview.png
 ```
 
-这张总览图和 `README.md` 保持一致，包含 4 个 panel：
-
-- 1) 密度场
-- 2) 概率场
-- 3) 2000 个随机种子点
-- 4) 连续中空圆柱边界上的 3D Voronoi 表面分块图
-
-这条链路里最常改的是：
-
-- `--num-seeds`：采样点数量
-- `--gamma`：密度转概率时的权重指数
-- `--rng-seed`：随机采样种子
-
-比如：
+### 节点 C：restricted Voronoi / shell GLB
 
 ```bash
-uv run topopt-sampling sample-seeds \
-  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
-  --num-seeds 3000 \
-  --gamma 1.5 \
-  --rng-seed 7 \
-  --output-npz datasets/topopt/seed_probability_mapping_3000_gamma15.npz
+uv run topopt-sampling exact-summary \
+  datasets/topopt/seed_probability_mapping_2000.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50
 ```
 
-### 工作流 C：导出 STL
+导出 Three.js viewer 使用的 shell GLB：
 
-如果你要把几何送去打印、仿真或者下游 CAD/mesh 工具，通常会从这里开始。
+```bash
+uv run topopt-sampling export-threejs-shell-glb \
+  datasets/topopt/seed_probability_mapping_2000.npz \
+  --xy-size 200 \
+  --z-size 80 \
+  --outer-radius 100 \
+  --inner-radius 50 \
+  --output-json viewer/public/data/hybrid_exact_shell_2000.glb
+```
+
+### 节点 D：螺旋杆 / Voronoi 杆系导出
+
+`helix_voronoi` 当前用于验证 Voronoi 杆系和螺旋杆实体化。
 
 导出纯 helix 风格：
 
@@ -190,32 +237,27 @@ uv run helix-voronoi export-mixed \
   --stl-output docs/assets/voronoi_mixed.stl
 ```
 
-什么时候改哪些参数：
+### 节点 E：681 `.mat` 到骨架 STL / GLB
 
-- 想让杆更粗，改 `--radius`
-- 想让内部螺旋更明显，改 `--helix-cycles` 和 `--helix-amplitude`
-- 想换一个几何实例，改 `--seed`
-- 想控制 Voronoi 复杂度，改 `--num-seeds`
-
-### 工作流 D：日常开发
-
-改代码时，最常用的是下面这几个命令：
-
-### Three.js 可视化（推荐用于 shell blocks 交互查看）
-
-先导出 viewer 数据（GLB）：
+`matlab2stl_pipeline` 是已实现的下游几何链路，用于验证伪密度场到 Voronoi 骨架 mesh 的全流程。
 
 ```bash
-uv run topopt-sampling export-threejs-shell-glb \
-  datasets/topopt/seed_probability_mapping_2000.npz \
-  --xy-size 200 \
-  --z-size 80 \
-  --outer-radius 100 \
-  --inner-radius 50 \
-  --output-json viewer/public/data/hybrid_exact_shell_2000.glb
+uv run matlab2stl-pipeline run-pipeline \
+  --mat datasets/681.mat \
+  --output-dir outputs/matlab2stl_pipeline_seed500_cvt500 \
+  --viewer-dir viewer/public/data \
+  --num-seeds 500 \
+  --cvt-iters 500
 ```
 
-再启动 viewer：
+重点输出：
+
+- `outputs/matlab2stl_pipeline_seed500_cvt500/681_skeleton_density.stl`
+- `outputs/matlab2stl_pipeline_seed500_cvt500/681_skeleton_cvt500.stl`
+- `viewer/public/data/681_skeleton_density.glb`
+- `viewer/public/data/681_skeleton_cvt500.glb`
+
+## 6. Viewer
 
 ```bash
 cd viewer
@@ -223,52 +265,56 @@ pnpm install
 pnpm dev
 ```
 
-默认读取：
-
-- `viewer/public/data/hybrid_exact_shell_2000.glb`
-
-默认本地地址：
+默认地址：
 
 - `http://127.0.0.1:5173/`
 
-说明：当前 viewer 导出链路已经加入圆柱周期接缝修复，包含更稳定的 seam atlas 选择、共享边 snapping，以及 cylinder/plane/cap 交界 seam strip 补面，适合直接检查 shell blocks 的接缝连续性与爆炸图效果。
+常用模型参数：
 
-跑单元测试：
+- `?model=voronoi`
+- `?model=681_raw`
+- `?model=681_skeleton_density`
+- `?model=681_skeleton_cvt500`
+- `?model=fjw_reference`
+
+## 7. 开发检查
+
+快速看 CLI 是否正常启动：
+
+```bash
+uv run fem-analysis fjw-optimize --help
+uv run topopt-sampling --help
+uv run helix-voronoi --help
+uv run matlab2stl-pipeline run-pipeline --help
+```
+
+常用测试：
 
 ```bash
 uv run python -m unittest discover -s tests -v
+uv run python -m unittest tests/test_topopt_sampling.py -v
+uv run python -m unittest tests/test_helix.py -v
+uv run python -m unittest tests/test_matlab2stl_pipeline_transform.py -v
 ```
 
-快速看 CLI 是否还能正常启动：
-
-```bash
-uv run helix-voronoi --help
-uv run topopt-sampling --help
-```
-
-一个简单的习惯是：
+一个简单的习惯：
 
 1. 先跑相关测试
-2. 再跑一次你改到的那条主流程
-3. 如果改到了输出格式或图像，重新生成产物，并自己检查 `docs/assets/` 或 `datasets/` 里的结果
+2. 再跑一次改到的 pipeline 节点
+3. 如果改到输出格式或图像，重新生成产物，并检查 `docs/assets/`、`datasets/`、`viewer/public/data/` 或 `outputs/` 中的结果
 
-## 6. 常见约定
+## 8. 常见约定
 
-- 正式工作流优先放在 `src/` 下面
-- 可复用的 `.npz` 数据放 `datasets/`
-- 文档展示用图片和 STL 放 `docs/assets/`
+- 主实现放在 `src/`
+- 可复用输入和中间标准数据放在 `datasets/`
+- 文档展示图片放在 `docs/assets/`
+- 分析报告放在 `docs/analysis/`
+- 大体积运行结果放在 `runs/` 或 `outputs/`
 
-## 7. 遇到问题先看哪里
+## 9. 继续阅读
 
-- 项目总览：`README.md`
-- voxel demo 说明：`docs/voxel_torus_demo.md`
-- 3D 体块规划：`docs/plan/restricted-voronoi-3d-blocks-plan.md`
-- 数据目录说明：`datasets/README.md`
-
-如果你只是想先确认仓库是活的，最短路径就是：
-
-```bash
-uv sync
-uv run helix-voronoi
-uv run python -m unittest discover -s tests -v
-```
+- 项目背景：`docs/background.md`
+- FJW workflow：`docs/fjw_workflow_runbook.md`
+- 681 downstream geometry：`docs/681_pipeline.md`
+- annular-cylinder demo：`docs/annular_cylinder_voxel_demo.md`
+- matlab2stl 快速说明：`src/matlab2stl_pipeline/HOW_TO_START.md`

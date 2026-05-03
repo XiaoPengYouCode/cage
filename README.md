@@ -1,70 +1,64 @@
-# Helix Voronoi + Topopt Sampling
+# Cage Pipeline
 
 ![Topology Sampling Overview](docs/assets/topopt_sampling_pipeline_overview.png)
 
-一个围绕两条主线组织的 Python 项目：
+这个仓库围绕一条完整 pipeline 组织：先用 `fem_analysis` 中的 FJW workflow 得到 cage 的最终伪密度分布，再把伪密度场转换为 seed points，构建 Voronoi / restricted Voronoi 结构，最后生成螺旋杆或实体骨架几何，并导出为 STL、GLB、图片和验证产物。
 
-- `helix_voronoi`：Voronoi 杆系几何生成、渲染、STL 导出
-- `topopt_sampling`：把拓扑优化三维密度场转成概率分布，并随机采样三维 seed points
+```text
+fem_analysis FJW workflow
+  -> final pseudo-density / design density
+  -> standardized density NPZ
+  -> topopt_sampling probability + seed sampling
+  -> Voronoi / restricted Voronoi geometry
+  -> helix_voronoi or matlab2stl_pipeline geometry export
+  -> STL / GLB / viewer / analysis artifacts
+```
 
----
+`fem_analysis`、`topopt_sampling`、`helix_voronoi`、`matlab2stl_pipeline` 和 `ct_reconstruction` 是同一条 pipeline 上的节点。阅读和维护时应按阶段理解这些模块，避免把它们拆成多条主线。
 
-## Packages
+## Pipeline Nodes
 
-### 1) `helix_voronoi`
+### 1. `fem_analysis`
 
-面向几何生成与导出，负责：
+FJW workflow 负责把 `references/fjw_work/` 的三工况骨改建优化流程迁移到 Python。当前主路径是 SfePy + SciPy 的 Python-only 求解、动态伴随、MMA 外层优化和 validation report。Abaqus 保留为历史输入生成和可选对照后端。
 
-- Voronoi 单胞生成与边提取
-- 直杆 / 螺旋杆实体化
-- 预览图渲染
-- STL 导出
 常用命令：
 
 ```bash
-uv run helix-voronoi
-uv run helix-voronoi export-helix --seed 55
-uv run helix-voronoi export-mixed --seed 55
-uv run helix-voronoi modulus --seed 55 --style both
-uv run fem-analysis annular-cylinder --outer-diameter-cm 3 --inner-diameter-cm 2 --height-cm 2 --load-n 1000 --voxel-size-mm 0.4
-uv run fem-analysis annular-cylinder --outer-diameter-cm 3 --inner-diameter-cm 2 --height-cm 2 --load-n 1000 --voxel-size-mm 0.4 --inner-fill bone --fill-youngs-modulus-gpa 1.0 --fill-poisson-ratio 0.3
-uv run fem-analysis annular-cylinder --output-npz datasets/topopt/annular_cylinder_fea_density.npz
+uv run fem-analysis fjw-preflight
+uv run fem-analysis fjw-optimize --backend sfepy --mode three-force --max-iterations 1 --num-time-steps 1
+uv run fem-analysis fjw-validate --run-directory runs/fjw_optimize
+uv run fem-analysis fjw-capture-golden --run-directory runs/fjw_optimize --golden-directory datasets/fjw_golden/captured_run
 ```
 
-补充预览图：
+边界说明：
 
-<img src="docs/assets/voronoi_mixed_preview.png" alt="Voronoi Mixed Preview" width="320" />
+- `fjw-preflight` 默认检查 Python-only 运行栈：`numpy`、`scipy`、`sfepy` 和 reference 输入。
+- Abaqus、PETSc/MUMPS、captured golden 都是显式 `--require-*` 或专门参数打开的额外 gate。
+- `scipy_iterative` 是 SfePy 的 Python-only 默认求解 profile。
+- Abaqus backend 用于历史对照；真实优化入口必须使用 `--real-run`。
+- 大体积运行产物默认放在 `runs/`，不作为应提交数据。
 
-### 2) `topopt_sampling`
+### 2. `topopt_sampling`
 
-面向拓扑优化后处理，当前只保留一条干净链路：
+`topopt_sampling` 负责把三维密度场转换成概率场，并采样 Voronoi seed points。它也包含中空圆柱域上的 exact restricted Voronoi / hybrid B-rep / Three.js shell GLB 导出能力。
 
-```text
-3D density field -> probability field -> random seed points
-```
-
-它负责：
-
-- 读取 `.npz` 或 `.mat` 格式的三维密度输入
-- 把密度场转换成采样概率，默认 `gamma=1.0`
-- 一次性从整个三维体素域中随机采样 `seed_points`
-- 把结果保存为 `.npz`，用于后续几何流程
-- 基于解析支撑面与 Voronoi 半空间，构建 exact restricted Voronoi 3D 架构骨架
-
-统一 `.npz` 输入约定的最小字段如下：
+标准 `.npz` 密度输入的核心字段：
 
 - `density_milli`：`uint16` 三维密度场，范围 `0..1000`
 - `voxels`：`uint8` 三维占据体素，`0/1`
-- `xy_size`、`z_size`：体素尺寸
+- `grid_shape_xyz` 或 `xy_size` / `z_size`：体素域尺寸
+- `voxel_size_xyz_m`：体素物理尺寸，若该数据来自物理模型
 - `shape_name`、`result_type`：数据来源标识
 
-`fem_analysis` 导出的 annular-cylinder `.npz` 已经遵守这套约定，并额外携带 `material_id`、`voxel_size_xyz_m`、`outer_radius`、`inner_radius` 等元数据，能直接喂给 `topopt_sampling sample-seeds`。
+采样公式：
 
-源码位置：
+```text
+w(i,j,k) = rho(i,j,k)^gamma
+p(i,j,k) = w(i,j,k) / sum(w)
+```
 
-- `src/topopt_sampling/`
-
-CLI：
+命令示例：
 
 ```bash
 uv run topopt-sampling sample-seeds \
@@ -73,46 +67,110 @@ uv run topopt-sampling sample-seeds \
   --output-npz datasets/topopt/seed_probability_mapping_2000.npz
 ```
 
-也可以直接使用 Matlab `.mat` 输入：
+### 3. `helix_voronoi`
+
+`helix_voronoi` 是 Voronoi 杆系几何节点，负责 Voronoi 单胞生成、边提取、直杆 / 螺旋杆实体化、预览渲染和 STL 导出。
+
+常用命令：
 
 ```bash
-uv run topopt-sampling sample-seeds \
-  datasets/topopt/example_fake_density_annular_cylinder_200x200x80.mat \
-  --num-seeds 2000 \
-  --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
+uv run helix-voronoi
+uv run helix-voronoi export-helix --seed 55
+uv run helix-voronoi export-mixed --seed 55
 ```
 
-对于 exact restricted Voronoi 3D 架构，可以先输出一个解析摘要：
+当前 CLI 主要用于单位 Voronoi 杆系和螺旋杆样式验证。下游把 `topopt_sampling` 的 density-derived seeds 接进螺旋杆生成时，应复用这个节点里的杆件实体化逻辑。
+
+### 4. `matlab2stl_pipeline`
+
+`matlab2stl_pipeline` 是 681 `.mat` 数据到骨架 STL / GLB 的已实现端到端几何节点。它适合验证“伪密度场到 Voronoi 骨架 mesh”的下游几何链路。
 
 ```bash
-uv run topopt-sampling exact-summary \
-  datasets/topopt/seed_probability_mapping_2000.npz \
+uv run matlab2stl-pipeline run-pipeline \
+  --mat datasets/681.mat \
+  --output-dir outputs/matlab2stl_pipeline \
+  --viewer-dir viewer/public/data
+```
+
+默认步骤包括：
+
+```text
+.mat -> raw density NPZ -> raw GLB
+  -> OBB fitting -> aligned density + probability
+  -> seed sampling -> optional CVT
+  -> box-restricted Voronoi
+  -> edge extraction
+  -> skeleton voxelization
+  -> marching-cubes mesh
+  -> STL / GLB
+```
+
+### 5. `ct_reconstruction` and viewer
+
+`ct_reconstruction` 负责 STL 到体素 / NPZ / GLB 的辅助转换。`viewer/` 负责本地交互查看 GLB 结果。
+
+```bash
+cd viewer
+pnpm install
+pnpm dev
+```
+
+默认地址：
+
+- `http://127.0.0.1:5173/`
+
+## Smoke Workflows
+
+### A. 环境检查
+
+```bash
+uv sync
+uv run python --version
+uv run python -m unittest discover -s tests -v
+```
+
+### B. FJW Python-only 节点
+
+```bash
+uv run fem-analysis fjw-preflight
+uv run fem-analysis fjw-optimize \
+  --backend sfepy \
+  --mode three-force \
+  --max-iterations 1 \
+  --num-time-steps 1 \
+  --sfepy-linear-solver scipy_iterative \
+  --run-directory runs/fjw_optimize
+uv run fem-analysis fjw-validate --run-directory runs/fjw_optimize
+```
+
+### C. Annular-cylinder density sampling demo
+
+这个 demo 用解析中空圆柱生成假密度场，主要用于快速验证 `topopt_sampling` 节点。
+
+```bash
+uv run topopt-sampling generate-voxels \
+  --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
   --xy-size 200 \
   --z-size 80 \
   --outer-radius 100 \
   --inner-radius 50
+
+uv run topopt-sampling generate-fake-density \
+  datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
+  --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
+
+uv run topopt-sampling sample-seeds \
+  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --num-seeds 2000 \
+  --output-npz datasets/topopt/seed_probability_mapping_2000.npz
+
+uv run topopt-sampling render-overview \
+  --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
+  --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
+  --output docs/assets/topopt_sampling_pipeline_overview.png
 ```
 
-也可以直接生成 end-to-end 的 hybrid exact B-rep JSON 结果：
-
-```bash
-uv run topopt-sampling build-exact-brep \
-  datasets/topopt/seed_probability_mapping_2000.npz \
-  --xy-size 200 \
-  --z-size 80 \
-  --outer-radius 100 \
-  --inner-radius 50 \
-  --seed-ids 0 1 2 \
-  --output-json docs/analysis/restricted_voronoi_brep.json
-```
-
-输出会显式包含：
-- support surfaces
-- exact faces with loop edge ids
-- exact edges with analytic curve kinds (`line_segment`, `circle_arc`, `cylinder_plane_curve`)
-- exact vertices with triple-support provenance
-
-对于 shell blocks 的交互查看，可以直接导出 Three.js viewer 所需的 GLB：
+### D. Shell GLB viewer export
 
 ```bash
 uv run topopt-sampling export-threejs-shell-glb \
@@ -124,129 +182,45 @@ uv run topopt-sampling export-threejs-shell-glb \
   --output-json viewer/public/data/hybrid_exact_shell_2000.glb
 ```
 
-再启动 viewer：
+### E. 681 downstream geometry node
 
 ```bash
-cd viewer
-pnpm install
-pnpm dev
+uv run matlab2stl-pipeline run-pipeline \
+  --mat datasets/681.mat \
+  --output-dir outputs/matlab2stl_pipeline_seed500_cvt500 \
+  --viewer-dir viewer/public/data \
+  --num-seeds 500 \
+  --cvt-iters 500
 ```
 
-默认地址：`http://127.0.0.1:5173/`
+重点输出：
 
-当前导出链路已经包含圆柱周期接缝处理：
-- cylinder face 会自动选择更稳定的 seam atlas 再展开三角化
-- shell GLB 导出会对共享 seam 边做 canonical snapping
-- cylinder / plane / cap 交界会额外生成 seam strip，降低接缝裂缝与破面风险
-
----
-
-## 数学思路
-
-设拓扑优化输出为三维密度场 `rho(i,j,k)`。
-
-1. 先把密度场转成权重：
-
-```text
-w(i,j,k) = rho(i,j,k)^gamma
-```
-
-当前默认 `gamma = 1.0`。
-
-2. 再做归一化，得到离散概率分布：
-
-```text
-p(i,j,k) = w(i,j,k) / sum(w)
-```
-
-3. 最后按这个离散分布采样 `num_seeds` 次，并在每个被选中的体素内部加入 `[0,1)` 随机扰动，得到连续坐标的种子点：
-
-```text
-seed = voxel_index + uniform_jitter
-```
-
-这套方法的重点是：
-
-- 高密度区域更容易被采到
-- 零密度区域不会产生种子
-- 整个流程只依赖密度场本身，不引入额外结构假设
-
----
-
-## Demo Workflow
-
-仓库默认不提交新的 `200x200x80` demo 输入数据，所以推荐直接走 `topopt-sampling` 的正式命令链。
-
-### A. 生成中空圆柱体素输入
-
-```bash
-uv run topopt-sampling generate-voxels \
-  --output datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
-  --xy-size 200 \
-  --z-size 80 \
-  --outer-radius 100 \
-  --inner-radius 50
-```
-
-### B. 生成假的拓扑优化密度结果
-
-```bash
-uv run topopt-sampling generate-fake-density \
-  datasets/voxel/voxel_annular_cylinder_200x200x80.npz \
-  --output datasets/topopt/fake_density_annular_cylinder_200x200x80.npz
-```
-
-### C. 从密度场采样随机种子点
-
-```bash
-uv run topopt-sampling sample-seeds \
-  datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
-  --num-seeds 2000 \
-  --output-npz datasets/topopt/seed_probability_mapping_2000.npz
-```
-
-如果要验证 `.mat` 输入：
-
-```bash
-uv run topopt-sampling sample-seeds \
-  datasets/topopt/example_fake_density_annular_cylinder_200x200x80.mat \
-  --num-seeds 2000 \
-  --output-npz datasets/topopt/seed_probability_mapping_from_mat_2000.npz
-```
-
-### D. 生成总览图
-
-总览图现在包含 4 个 panel：
-- 1) 密度场
-- 2) 概率场
-- 3) 2000 个随机种子点
-- 4) 连续中空圆柱边界上的 3D Voronoi 表面分块图
-
-```bash
-uv run topopt-sampling render-overview \
-  --density-npz datasets/topopt/fake_density_annular_cylinder_200x200x80.npz \
-  --seed-npz datasets/topopt/seed_probability_mapping_2000.npz \
-  --output docs/assets/topopt_sampling_pipeline_overview.png
-```
-
----
+- `outputs/matlab2stl_pipeline_seed500_cvt500/681_skeleton_density.stl`
+- `outputs/matlab2stl_pipeline_seed500_cvt500/681_skeleton_cvt500.stl`
+- `viewer/public/data/681_skeleton_density.glb`
+- `viewer/public/data/681_skeleton_cvt500.glb`
 
 ## Repo Layout
 
 ```text
 src/
-  helix_voronoi/      # 几何生成、渲染、STL 导出
-  topopt_sampling/    # density/demo -> probability -> random seeds 工作流
+  fem_analysis/          # FJW optimization, solver, adjoint, MMA, validation
+  topopt_sampling/       # density -> probability -> seeds -> restricted Voronoi
+  helix_voronoi/         # Voronoi rod and helix-rod geometry export
+  matlab2stl_pipeline/   # 681 .mat -> Voronoi skeleton STL/GLB pipeline
+  ct_reconstruction/     # STL/voxel/NPZ/GLB conversion helpers
 
 datasets/
-  topopt/             # 拓扑优化链路输入与中间结果
-  voxel/              # 体素 demo 数据
+  topopt/                # reusable density, seed, and intermediate data
+  voxel/                 # generated demo voxel geometry
 
-docs/assets/          # 文档图片与展示产物
-tests/                # 回归测试
+docs/
+  assets/                # tracked figures and visual artifacts
+  analysis/              # audit reports and analysis notes
+
+viewer/
+  public/data/           # GLB data loaded by the Three.js viewer
 ```
-
----
 
 ## Testing
 
@@ -254,10 +228,20 @@ tests/                # 回归测试
 uv run python -m unittest discover -s tests -v
 ```
 
----
+For targeted checks:
+
+```bash
+uv run python -m unittest tests/test_topopt_sampling.py -v
+uv run python -m unittest tests/test_helix.py -v
+uv run python -m unittest tests/test_matlab2stl_pipeline_transform.py -v
+uv run python -m unittest tests/test_fjw_workflow_optimize.py -v
+```
 
 ## Related Docs
 
+- `docs/background.md`
 - `docs/how_to_start.md`
-- `docs/plan/restricted-voronoi-3d-blocks-plan.md`
-- `docs/voxel_torus_demo.md`
+- `docs/fjw_workflow_runbook.md`
+- `docs/681_pipeline.md`
+- `docs/annular_cylinder_voxel_demo.md`
+- `src/matlab2stl_pipeline/HOW_TO_START.md`

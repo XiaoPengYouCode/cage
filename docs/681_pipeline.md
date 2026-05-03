@@ -1,437 +1,278 @@
-# 681 完整处理 Pipeline
+# 681 Downstream Geometry Pipeline
 
-本文档定义从原始 MATLAB `.mat` 文件出发，最终生成可在 viewer 中交互显示的泰森多边形骨架 mesh 的端到端工作流。
+这份文档说明当前已经实现的 681 `.mat` 到 Voronoi 骨架 STL / GLB 流程。它是完整 cage pipeline 的下游几何节点，用来验证“伪密度场 -> seed points -> Voronoi 骨架 -> mesh 导出”这段链路。
 
----
+完整项目主线仍然是：
 
-## 数据流总览
-
-```
-681.mat
-  │
-  ▼ Step 1
-NPZ 体素网格（occupancy + 伪密度）
-  │
-  ▼ Step 2
-GLB 文件 → viewer 预览（原始斜向长方体）
-  │
-  ▼ Step 3
-概率密度场（density_milli → probability field）
-  │
-  ▼ Step 4
-包围盒拟合 → 对齐长方体域（AABB-aligned bounding box）
-  │
-  ▼ Step 5
-伪密度场空间变换 → 映射至对齐长方体
-  │
-  ▼ Step 6
-种子点撒播（基于概率密度场）
-  │
-  ▼ Step 7
-限制性泰森多边形划分（在对齐长方体域内）
-  │
-  ▼ Step 8
-提取所有棱（内部 + 面边界 + 长方体棱）
-  │
-  ▼ Step 9
-体素化形态学膨胀（每条棱 → 实体管道） + GLB 导出 → viewer
-  │
-  ▼ Step 10
-连通实体的 mesh 重建（marching cubes）
-  │
-  ▼ Step 11（最终输出）
-泰森多边形骨架 mesh（GLB + viewer 注册）
+```text
+fem_analysis FJW workflow
+  -> final pseudo-density / design density
+  -> standardized density NPZ
+  -> topopt_sampling probability + seeds
+  -> Voronoi / restricted Voronoi
+  -> helix rods or scaffold mesh
+  -> STL / GLB / viewer / analysis
 ```
 
----
+`datasets/681.mat` 是历史或实验密度快照。它可以直接进入下游几何节点，方便调试 OBB 对齐、seed sampling、Voronoi 划分和 mesh 导出。
 
-## 详细步骤
+## Command
 
-### Step 1 — 读取 681.mat，转换为标准 NPZ 体素格式
+最小用法：
 
-**输入：** `datasets/681.mat`
-
-**目标：** 读取 MATLAB 格式的体素化拓扑优化结果，提取伪密度（pseudo-density）字段，转换为本仓库通用的 NPZ 格式。
-
-**NPZ 标准字段（参照 `ct_reconstruction.npz_writer`）：**
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `density_milli` | `uint16` (0..1000) | 伪密度，归一化到整数千分比 |
-| `voxels` | `uint8` (0/1) | 二值占用网格（density > 阈值） |
-| `grid_shape_xyz` | `int32[3]` | 体素网格维度 `[nx, ny, nz]` |
-| `origin_m` | `float32[3]` | 原点坐标（米） |
-| `voxel_size_xyz_m` | `float32[3]` | 各轴体素尺寸（米） |
-| `shape_name` | `str` | `"681"` |
-| `result_type` | `str` | `"mat_imported"` |
-| `density_kind` | `str` | `"pseudo_density"` |
-
-**输出：** `datasets/topopt/681_raw_density.npz`
-
-**技术要点：**
-- 使用 `scipy.io.loadmat` 读取 `.mat` 文件
-- 检查 `.mat` 内变量名，通常为 `xPhys`、`x` 或 `rho` 等拓扑优化密度字段
-- 体素尺寸、原点需从 `.mat` 元数据或约定参数中提取
-- 密度值乘以 1000 后 clip 到 `[0, 1000]` 存为 `uint16`
-
-**新增 CLI 子命令（建议）：**
-```
-topopt-sampling import-mat \
+```bash
+uv run matlab2stl-pipeline run-pipeline \
   --mat datasets/681.mat \
-  --output datasets/topopt/681_raw_density.npz
+  --output-dir outputs/matlab2stl_pipeline
 ```
 
----
+带 viewer 复制、500 个 seed 和 CVT 500 次：
 
-### Step 2 — NPZ 体素 → GLB，在 viewer 中预览原始几何
-
-**输入：** `datasets/topopt/681_raw_density.npz`
-
-**目标：** 将体素占用网格导出为 GLB，注册到 viewer，用于确认几何正确性。
-
-**现有工具：** `ct_reconstruction.glb_export`（exposed-face mesh 提取 → GLB）
-
-**输出：**
-- `viewer/public/data/681_raw.glb`
-
-**viewer 注册：** 在 `viewer/src/main.js` 的模型列表中添加 `681_raw` 入口。
-
-**CLI：**
-```
-ct-reconstruction voxelize \
-  --npz datasets/topopt/681_raw_density.npz \
-  --output-glb viewer/public/data/681_raw.glb
+```bash
+uv run matlab2stl-pipeline run-pipeline \
+  --mat datasets/681.mat \
+  --output-dir outputs/matlab2stl_pipeline_seed500_cvt500 \
+  --viewer-dir viewer/public/data \
+  --num-seeds 500 \
+  --cvt-iters 500
 ```
 
----
+查看参数：
 
-### Step 3 — 伪密度场 → 概率密度函数场
-
-**输入：** `datasets/topopt/681_raw_density.npz`（字段 `density_milli`）
-
-**目标：** 将伪密度（0..1）通过幂函数变换，生成用于种子点撒播的概率密度函数（PDF）场。
-
-**变换方式（参照 `topopt_sampling.probability`）：**
-
-```
-p(x) = ρ(x)^γ / Σ ρ(x)^γ
+```bash
+uv run matlab2stl-pipeline run-pipeline --help
 ```
 
-其中 γ（gamma）为集中度参数，γ > 1 使高密度区域更集中，γ < 1 使分布更均匀。
+## Implemented Data Flow
 
-**输出：** 保存在 `datasets/topopt/681_probability_field_gamma{γ}.npz`，字段为 `probability`（`float32`，归一化使总和为 1）。
+当前实现位于 `src/matlab2stl_pipeline/cli.py`，运行 `run-pipeline` 会依次执行：
 
-**CLI：**
-```
-topopt-sampling compute-probability \
-  --input datasets/topopt/681_raw_density.npz \
-  --gamma 3.0 \
-  --output datasets/topopt/681_probability_field_gamma3.npz
-```
-
-> 现有 `sample-seeds` 命令内含此步骤；如需独立保存概率场，需拆分或新增子命令。
-
----
-
-### Step 4 — 斜向长方体包围盒拟合 → 生成对齐长方体域
-
-**输入：** `datasets/topopt/681_raw_density.npz`（`voxels` 字段 + `origin_m` + `voxel_size_xyz_m`）
-
-**目标：** 681 几何体是一个在体素空间中斜向放置的长方体。本步骤：
-
-1. 在体素占用网格中提取实体区域的点云
-2. 用主成分分析（PCA）或最小有向包围盒（OBB）算法拟合出该斜向长方体的局部坐标系（三个正交轴 `u, v, w` 和质心 `c`）
-3. 确定 OBB 的三个半轴长度 `(L_u, L_v, L_w)`，对应真实的长宽高
-
-**输出：** `datasets/topopt/681_obb.npz`，字段包括：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `center_m` | `float32[3]` | OBB 质心（米） |
-| `axes` | `float32[3,3]` | 局部坐标系三个单位轴向量（行向量） |
-| `half_extents_m` | `float32[3]` | 三个方向半轴长度（米） |
-| `rotation_matrix` | `float32[3,3]` | 从 OBB 局部坐标到世界坐标的旋转矩阵 |
-
-**技术要点：**
-- 使用 `scipy` 或 `sklearn` 的 PCA，或 `scipy.spatial.ConvexHull` 后做旋转卡壳（rotating calipers）
-- OBB 比 AABB 小，保证拟合紧密
-- 保存旋转矩阵供 Step 5 使用
-
-**CLI（建议新增）：**
-```
-topopt-sampling fit-obb \
-  --input datasets/topopt/681_raw_density.npz \
-  --output datasets/topopt/681_obb.npz
+```text
+datasets/681.mat
+  |
+  v
+681_raw_density.npz
+  |
+  v
+681_raw.glb
+  |
+  v
+681_obb.npz
+  |
+  v
+681_aligned_density_gamma{gamma}.npz
+  |
+  v
+681_seeds_{N}_gamma{gamma}.npz
+  |
+  +--> optional 681_seeds_{N}_gamma{gamma}_cvt{iters}.npz
+  |
+  v
+681_voronoi_{tag}.npz
+  |
+  v
+681_voronoi_cells_{tag}.glb
+  |
+  v
+681_voronoi_edges_{tag}.npz
+  |
+  v
+681_skeleton_voxels_{tag}.npz
+  |
+  v
+681_skeleton_{tag}.glb + 681_skeleton_{tag}.stl
 ```
 
----
+`tag` 通常是：
 
-### Step 5 — 伪密度场空间变换 → 映射至对齐长方体
+- `density`：直接由密度概率采样得到的 seed set
+- `cvt{iters}`：经过 Lloyd CVT 松弛后的 seed set
 
-**输入：**
-- `datasets/topopt/681_raw_density.npz`（原始体素密度）
-- `datasets/topopt/681_obb.npz`（OBB 拟合结果）
+## Step Details
 
-**目标：** 将斜向放置的伪密度场通过逆旋转变换，重采样到一个轴对齐（AABB）的规整长方体体素网格中。变换后的长方体：
-- 长宽高 = OBB 的 `2 * half_extents_m`
-- 坐标轴与世界坐标系完全对齐（即 X/Y/Z 轴平行）
-- 体素分辨率保持与原始 `voxel_size_xyz_m` 一致
+### Step 1. Import `.mat` to standard density NPZ
 
-**变换方法：**
+实现：`src/matlab2stl_pipeline/mat_importer.py`
 
-```
-对于新网格中每个体素位置 p_new（米）：
-  p_local = p_new - center_m        # 平移到 OBB 中心
-  p_old = R^T · p_local             # 逆旋转到原始空间
-  p_voxel = (p_old - origin_m) / voxel_size_xyz_m  # 转到体素坐标
-  用三线性插值 从原始 density_milli[p_voxel] 采样
-```
+输入：
 
-**输出：** `datasets/topopt/681_aligned_density.npz`，格式与 Step 1 相同，但 `origin_m` 和 `axes` 已对齐世界坐标系。
+- `datasets/681.mat`
 
-**技术要点：**
-- 使用 `scipy.ndimage.affine_transform` 实现高效体素重采样
-- 需处理边界（插值超出范围的区域填 0）
+默认读取变量：
 
-**CLI（建议新增）：**
-```
-topopt-sampling align-density \
-  --input datasets/topopt/681_raw_density.npz \
-  --obb datasets/topopt/681_obb.npz \
-  --output datasets/topopt/681_aligned_density.npz
-```
+- `cage_3D1`
 
----
+输出：
 
-### Step 6 — 种子点撒播（基于概率密度场）
+- `681_raw_density.npz`
 
-**输入：** `datasets/topopt/681_aligned_density.npz`（对齐后的密度场）
+核心字段：
 
-**目标：** 在对齐后的长方体域内，根据概率密度函数场进行三维种子点的随机撒播，并可选地运行 CVT（Centroidal Voronoi Tessellation）迭代以优化种子点分布。
+- `density_milli`
+- `voxels`
+- `grid_shape_xyz`
+- `origin_m`
+- `voxel_size_xyz_m`
+- `shape_name`
+- `result_type`
+- `density_kind`
 
-**现有工具：** `topopt_sampling.probability.sample_seeds_from_density` + `topopt_sampling.cli sample-seeds`
+当前 681 数据默认体素尺寸为 `0.4 mm`。
 
-**参数：**
-- `--num-seeds N`：种子点数量（典型值：16、32、50、100、200、300、500、2000）
-- `--gamma γ`：PDF 幂次（典型值：1.0 或 3.0）
-- `--cvt-iters K`：CVT 迭代次数（0 = 纯随机，> 0 = Lloyd 松弛）
+### Step 2. Raw density GLB preview
 
-**输出：** `datasets/topopt/681_aligned_seed_points_{N}_gamma{γ}_cvt{K}.npz`
+实现：`src/matlab2stl_pipeline/cli.py` 中的 `_export_raw_glb`
 
-**CLI：**
-```
-topopt-sampling sample-seeds \
-  --input datasets/topopt/681_aligned_density.npz \
-  --num-seeds 100 \
-  --gamma 3.0 \
-  --cvt-iters 500 \
-  --output datasets/topopt/681_aligned_seed_points_100_gamma3_cvt500.npz
-```
+输出：
 
----
+- `681_raw.glb`
 
-### Step 7 — 限制性泰森多边形划分（Restricted Voronoi）
+如果传入 `--viewer-dir viewer/public/data`，该文件会复制到 viewer 数据目录。当前 viewer 已经注册 `?model=681_raw`。
 
-**输入：**
-- `datasets/topopt/681_aligned_density.npz`（定义域：对齐长方体）
-- `datasets/topopt/681_aligned_seed_points_100_gamma3_cvt500.npz`（种子点）
+### Step 3. OBB fitting
 
-**目标：** 在对齐长方体域内构建限制性泰森多边形图，每个细胞为凸多面体，域边界上的细胞需与长方体面正确裁剪。
+实现：`src/matlab2stl_pipeline/obb_aligner.py`
 
-**实现方式：直接使用 `scipy.spatial.Voronoi`**，不复用现有环柱体实现。
+输出：
 
-**方法：**
+- `681_obb.npz`
 
-```
-1. 调用 scipy.spatial.Voronoi(seed_points) 得到全局 Voronoi 图
-   - 输出：vertices（Voronoi 顶点坐标）、ridge_vertices（每条脊线的两顶点）
-            ridge_points（每条脊线对应的两个种子点）、point_region、regions
+核心字段：
 
-2. 用 "镜像点" 技巧处理开放区域（无穷远顶点 index = -1）：
-   - 在长方体 6 个面上对所有种子点做镜像，将镜像点加入 Voronoi 输入
-   - 这样边界附近的细胞不再有无穷远顶点，所有 ridge 均有限
+- `center_voxel`
+- `axes`
+- `half_extents_voxel`
+- `half_extents_m`
+- `rotation_matrix`
+- `voxel_size_xyz_m`
 
-3. 对每个种子点对应的 Voronoi 区域：
-   - 收集该区域所有 Voronoi 顶点
-   - 用长方体 6 个半空间约束（scipy.spatial.ConvexHull 或 HalfspaceIntersection）
-     对区域顶点做裁剪，得到最终凸多面体细胞
+这一步用 `density_milli > 0` 的体素点云做 PCA，拟合 681 密度域的有向包围盒。
 
-4. 保存每个细胞的 (vertices, faces) 对
-```
+### Step 4. Density alignment and probability field
 
-**输出：** `datasets/topopt/681_voronoi_diagram.npz`，字段：
+实现：`src/matlab2stl_pipeline/obb_aligner.py`
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `cell_vertices` | `object array` | 每个细胞的顶点坐标 `float32[V_i, 3]` |
-| `cell_faces` | `object array` | 每个细胞的面（顶点索引列表） |
-| `seed_points` | `float32[N, 3]` | 种子点（与细胞一一对应） |
-| `box_min` | `float32[3]` | 长方体最小角 |
-| `box_max` | `float32[3]` | 长方体最大角 |
+输出：
 
-**关键依赖：** `scipy.spatial.Voronoi`、`scipy.spatial.ConvexHull`
+- `681_aligned_density_gamma{gamma}.npz`
 
-**CLI（新增）：**
-```
-topopt-sampling build-box-voronoi \
-  --density-npz datasets/topopt/681_aligned_density.npz \
-  --seeds-npz datasets/topopt/681_aligned_seed_points_100_gamma3_cvt500.npz \
-  --output datasets/topopt/681_voronoi_diagram.npz
+核心字段：
+
+- `density_milli`
+- `voxels`
+- `probability_field`
+- `grid_shape_xyz`
+- `origin_m`
+- `voxel_size_xyz_m`
+- `restore_R`
+- `restore_t`
+
+这一步把斜向密度场重采样到 OBB 对齐坐标系，并同步保存概率场。`restore_R` 和 `restore_t` 用于把后续 mesh 变回原始姿态。
+
+### Step 5. Seed sampling
+
+实现：`src/matlab2stl_pipeline/seed_sampler.py`
+
+输出：
+
+- `681_seeds_{N}_gamma{gamma}.npz`
+
+核心字段：
+
+- `seed_points`
+- `seed_points_m`
+- `num_seeds`
+- `gamma`
+
+采样逻辑和主 `topopt_sampling` 节点一致：
+
+```text
+p = rho^gamma / sum(rho^gamma)
 ```
 
----
+### Step 6. Optional CVT relaxation
 
-### Step 8 — 提取泰森多边形所有棱
+实现：`src/matlab2stl_pipeline/cvt_relaxation.py`
 
-**输入：** 上一步的泰森多边形图（`681_voronoi_diagram.npz` 或内存对象）
+输出：
 
-**目标：** 从 Voronoi 图中提取所有唯一的棱（line segments），包括三类：
+- `681_seeds_{N}_gamma{gamma}_cvt{iters}.npz`
 
-| 类型 | 说明 |
-|------|------|
-| **内部棱** | 三个或三个以上 Voronoi 细胞共享的棱，位于长方体内部 |
-| **面边界棱** | 位于长方体某一面上，两个细胞在该面上的分界线段 |
-| **长方体棱上的棱** | 长方体 12 条棱各自被 Voronoi 细胞分割成若干线段 |
+`--cvt-iters 0` 会关闭这一步。
 
-**输出：** 棱集合，每条棱为两个端点 `(p0, p1)`（`float32[3]`），保存为：
-- `datasets/topopt/681_voronoi_edges.npz`，字段 `edges`（`float32[E, 2, 3]`）
+### Step 7. Box-restricted Voronoi
 
-**技术要点：**
-- 遍历所有 Voronoi 细胞的面，收集所有边，去重（按端点排序后哈希）
-- 区分三类棱时依据端点是否落在长方体面/棱上（数值容差判断）
-- 现有 `hybrid_exact_brep.py` 中有类似的边提取逻辑可参考
+实现：`src/matlab2stl_pipeline/box_voronoi.py`
 
-**CLI（建议新增）：**
-```
-topopt-sampling extract-voronoi-edges \
-  --voronoi datasets/topopt/681_voronoi_diagram.npz \
-  --output datasets/topopt/681_voronoi_edges.npz
-```
+输出：
 
----
+- `681_voronoi_{tag}.npz`
+- `681_voronoi_cells_{tag}.glb`
 
-### Step 9 — 体素化形态学膨胀（棱 → 实体管道）+ GLB 导出
+当前 681 pipeline 使用 OBB 对齐后的长方体域，因此这里构建的是 box-restricted Voronoi。环柱体的 exact restricted Voronoi 能力仍在 `src/topopt_sampling/` 中维护。
 
-**输入：**
-- `datasets/topopt/681_voronoi_edges.npz`（棱集合）
-- `datasets/topopt/681_aligned_density.npz`（用于获取体素网格参数）
+### Step 8. Edge extraction
 
-**目标：**
-1. 在对齐长方体对应的体素网格上，将每条棱光栅化为细线（Bresenham 三维直线算法）
-2. 对所有棱的体素集合执行形态学膨胀（`scipy.ndimage.binary_dilation` 或球形结构元素），膨胀半径对应设计的杆件直径
-3. 最终得到一个连通的实体体素网格（长方体域内的泰森多边形骨架实体）
-4. 将体素网格导出为 GLB，注册到 viewer
+实现：`src/matlab2stl_pipeline/box_voronoi.py`
 
-**输出：**
-- `datasets/topopt/681_skeleton_voxels.npz`（体素骨架）
-- `viewer/public/data/681_skeleton.glb`（viewer 可视化）
+输出：
 
-**viewer 注册：** 在 `viewer/src/main.js` 添加 `681_skeleton` 模型入口。
+- `681_voronoi_edges_{tag}.npz`
 
-**技术要点：**
-- 使用 `ct_reconstruction.glb_export` 中的 exposed-face 方法导出体素 GLB
-- 膨胀半径（杆件半径）应作为可配置参数（单位：体素数或毫米）
-- 棱的光栅化使用三维 Bresenham 或沿棱均匀采样体素坐标
+这一步从每个 Voronoi cell 的 face loops 中收集唯一边，作为后续骨架体素化的输入。
 
-**CLI（建议新增）：**
-```
-topopt-sampling voxelize-skeleton \
-  --edges datasets/topopt/681_voronoi_edges.npz \
-  --density-npz datasets/topopt/681_aligned_density.npz \
-  --dilation-radius 2 \
-  --output-npz datasets/topopt/681_skeleton_voxels.npz \
-  --output-glb viewer/public/data/681_skeleton.glb
-```
+### Step 9. Skeleton voxelization
 
----
+实现：`src/matlab2stl_pipeline/skeleton_voxelizer.py`
 
-### Step 10 — 骨架体素 mesh 重建
+输出：
 
-**输入：** `datasets/topopt/681_skeleton_voxels.npz`（连通实体体素网格）
+- `681_skeleton_voxels_{tag}.npz`
 
-**目标：** 对实体体素骨架执行等值面提取（marching cubes），生成光滑的三角面网格，再进行网格简化和平滑处理。
+核心参数：
 
-**方法：**
-- 等值面提取：`skimage.measure.marching_cubes`（level = 0.5）
-- 可选后处理：
-  - `open3d` 或 `trimesh` 做 Laplacian 平滑（减少体素阶梯感）
-  - `open3d.geometry.TriangleMesh.simplify_quadric_decimation` 做面片简化
+- `--subdivision`：细体素网格细分倍数
+- `--dilation-radius`：细体素中的形态学膨胀半径
 
-**输出：**
-- `datasets/topopt/681_scaffold_mesh.npz`（顶点 + 面片）
-- `viewer/public/data/681_scaffold.glb`（最终结果 GLB）
+### Step 10. Mesh reconstruction and export
 
-**viewer 注册：** 在 `viewer/src/main.js` 添加 `681_scaffold` 模型入口。
+实现：`src/matlab2stl_pipeline/skeleton_voxelizer.py`
 
-**CLI（建议新增）：**
-```
-topopt-sampling reconstruct-mesh \
-  --skeleton-npz datasets/topopt/681_skeleton_voxels.npz \
-  --output-npz datasets/topopt/681_scaffold_mesh.npz \
-  --output-glb viewer/public/data/681_scaffold.glb \
-  --smooth-iters 5
+输出：
+
+- `681_skeleton_{tag}.glb`
+- `681_skeleton_{tag}.stl`
+
+这一步通过 marching cubes 从骨架体素重建三角面网格，并使用 `restore_R` / `restore_t` 还原到原始姿态。
+
+## Common Parameters
+
+- `--num-seeds`：采样种子点数量，默认 `200`
+- `--gamma`：密度映射到采样概率时的指数权重，默认 `1.0`
+- `--cvt-iters`：Lloyd CVT 松弛次数，默认 `500`
+- `--subdivision`：骨架体素化细分倍数，默认 `10`
+- `--dilation-radius`：细体素网格中的膨胀半径，默认 `3.0`
+- `--mc-smooth-sigma`：Marching Cubes 前的高斯平滑强度，默认 `1.0`
+- `--viewer-dir`：需要复制 GLB 给 viewer 时设为 `viewer/public/data`
+
+## Viewer
+
+启动 viewer：
+
+```bash
+cd viewer
+pnpm install
+pnpm dev
 ```
 
----
+常用模型：
 
-## 中间文件汇总
+- `http://127.0.0.1:5173/?model=681_raw`
+- `http://127.0.0.1:5173/?model=681_skeleton_density`
+- `http://127.0.0.1:5173/?model=681_skeleton_cvt500`
 
-| 文件 | 步骤 | 说明 |
-|------|------|------|
-| `681_raw_density.npz` | Step 1 | MAT 导入的原始体素密度 |
-| `viewer/public/data/681_raw.glb` | Step 2 | 原始斜向几何预览 |
-| `681_probability_field_gamma3.npz` | Step 3 | 概率密度场 |
-| `681_obb.npz` | Step 4 | OBB 拟合结果（旋转矩阵 + 尺寸） |
-| `681_aligned_density.npz` | Step 5 | 变换至对齐长方体的密度场 |
-| `681_aligned_seed_points_100_gamma3_cvt500.npz` | Step 6 | 种子点 |
-| `681_voronoi_diagram.npz` | Step 7 | 泰森多边形图 |
-| `681_voronoi_edges.npz` | Step 8 | 所有棱 |
-| `681_skeleton_voxels.npz` | Step 9 | 骨架体素网格 |
-| `viewer/public/data/681_skeleton.glb` | Step 9 | 骨架体素 GLB 预览 |
-| `681_scaffold_mesh.npz` | Step 10 | 最终 mesh（顶点+面片） |
-| `viewer/public/data/681_scaffold.glb` | Step 10 | 最终骨架 mesh GLB |
+## Relationship To Main Pipeline
 
----
+681 pipeline 是当前下游几何实现的稳定入口。它直接从 `.mat` 读伪密度，适合验证 OBB 对齐、seed sampling、box Voronoi、骨架体素化和 STL / GLB 导出。
 
-## 新增 CLI 子命令汇总
-
-以下命令需在 `src/topopt_sampling/cli.py` 中新增（或适配现有命令）：
-
-| 命令 | 状态 | 对应步骤 |
-|------|------|---------|
-| `import-mat` | **待实现** | Step 1 |
-| `compute-probability` | 现有逻辑拆分 | Step 3 |
-| `fit-obb` | **待实现** | Step 4 |
-| `align-density` | **待实现** | Step 5 |
-| `sample-seeds` | **现有**（需适配 aligned NPZ） | Step 6 |
-| `build-box-voronoi` | **待实现**（现有针对环形柱体） | Step 7 |
-| `extract-voronoi-edges` | **待实现** | Step 8 |
-| `voxelize-skeleton` | **待实现** | Step 9 |
-| `reconstruct-mesh` | **待实现** | Step 10 |
-
----
-
-## 实现优先级建议
-
-1. **Step 1**（`import-mat`）：解锁所有后续步骤
-2. **Step 2**（GLB 预览）：快速验证导入结果
-3. **Step 4 + Step 5**（OBB 拟合 + 密度变换）：核心几何变换，需仔细验证
-4. **Step 6**（种子点撒播）：复用现有 `sample-seeds`，适配即可
-5. **Step 7**（Voronoi）：适配长方体域（最复杂）
-6. **Step 8–10**（骨架体素化 → mesh）：顺序推进
-
----
-
-## 技术依赖参考
-
-| 功能 | 推荐库 |
-|------|--------|
-| MAT 文件读取 | `scipy.io.loadmat` |
-| OBB 拟合 | `sklearn.decomposition.PCA` 或 `scipy.spatial` |
-| 体素重采样 | `scipy.ndimage.affine_transform` |
-| Voronoi（凸多面体） | `scipy.spatial.Voronoi` + 镜像点技巧 + `ConvexHull` 裁剪 |
-| 棱光栅化 | 三维 Bresenham（自实现） or 均匀采样 |
-| 形态学膨胀 | `scipy.ndimage.binary_dilation` |
-| Marching Cubes | `skimage.measure.marching_cubes` |
-| 网格后处理 | `trimesh` 或 `open3d` |
-| GLB 导出 | `ct_reconstruction.glb_export`（现有） |
+完整 cage pipeline 的上游密度来源应来自 `fem_analysis` 的 FJW workflow。把 FJW 输出接入下游时，优先整理成同样的标准密度 NPZ，再复用这里已经跑通的几何节点。
