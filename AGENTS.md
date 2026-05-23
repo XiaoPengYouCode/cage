@@ -103,6 +103,18 @@ uv run python -m unittest discover -s tests -v
 3. 最少引入新依赖
 4. 最容易测试和回归验证
 
+## 远程开发机 Skill
+
+涉及远程开发机或 wuyinyun 的任何操作，加载 `.agents/skills/remote-dev-cage/SKILL.md`。
+
+触发条件：
+
+- 提到 `wuyinyun`、远程机器、远端运行、SSH、云机器
+- 需要在远程机器执行 `uv sync`、`git pull`、`fjw-preflight`、`fjw-optimize` 或 `fjw-validate`
+- 需要跑 FJW / SfePy 一轮迭代优化
+
+机器特定参数放在 `.agents/skills/remote-dev-cage/machines/`。当前已注册：`wuyinyun`。
+
 ## References Policy
 
 `references/fjw_work/` 中保存的是你同门师兄 **方嘉纬学长** 的历史工作资料。

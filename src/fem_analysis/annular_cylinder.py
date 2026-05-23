@@ -3,22 +3,26 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import asdict, dataclass
+from io import StringIO
 from pathlib import Path
 
 import matplotlib
 import numpy as np
 from matplotlib.colors import Normalize
-from sfepy.base.base import output as sfepy_output
-from sfepy.discrete.common.region import Region
-from sfepy.discrete import Equation, Equations, FieldVariable, Integral, Material, Problem
-from sfepy.discrete.conditions import Conditions, EssentialBC
-from sfepy.discrete.fem import FEDomain, Field, Mesh
-from sfepy.mechanics.matcoefs import stiffness_from_youngpoisson
-from sfepy.solvers.ls import ScipyDirect
-from sfepy.solvers.nls import Newton
-from sfepy.terms import Term
+
+# SfePy prints optional JAX import notices to stdout during import.
+with redirect_stdout(StringIO()):
+    from sfepy.base.base import output as sfepy_output
+    from sfepy.discrete.common.region import Region
+    from sfepy.discrete import Equation, Equations, FieldVariable, Integral, Material, Problem
+    from sfepy.discrete.conditions import Conditions, EssentialBC
+    from sfepy.discrete.fem import FEDomain, Field, Mesh
+    from sfepy.mechanics.matcoefs import stiffness_from_youngpoisson
+    from sfepy.solvers.ls import ScipyDirect
+    from sfepy.solvers.nls import Newton
+    from sfepy.terms import Term
 
 try:
     from pyparsing.exceptions import PyparsingDeprecationWarning

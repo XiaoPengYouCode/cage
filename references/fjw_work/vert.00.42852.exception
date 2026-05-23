@@ -1,0 +1,36 @@
+<Description>
+   ***  ABAQUS/standard rank 0 received signal 4
+</Description>
+
+<Context>
+   INITIAL STRESS
+</Context>
+
+<Phase>
+   std | Exec | Substep | Sigin | Sigin2 | Sigin2-Eloops
+</Phase>
+
+
+<Memory>
+   <Current>            1830 MB </Current>
+   <Resident>           1542 MB </Resident>
+   <Physical>         130813 MB </Physical>
+   <Limit>            104650 MB </Limit>
+   <Accessible>       130813 MB </Accessible>
+   <Allocator>            DL    </Allocator>
+</Memory>
+
+<Directories>
+  <current> C:\Users\user\AppData\Local\Temp\hyf_vert_46008 </current> 
+    <indir> D:\huyifei\levelset\Level-set-topology-optimization-main\fjw\0.3 </indir> 
+   <outdir> D:\huyifei\levelset\Level-set-topology-optimization-main\fjw\0.3 </outdir>
+   <tmpdir> C:\Users\user\AppData\Local\Temp\hyf_vert_46008 </tmpdir>
+     <temp> C:\Users\user\AppData\Local\Temp </temp>
+</Directories>
+
+<Installation>
+     <Version> 2020 6.20-1 </Version>
+       <Build>   2019_09_14-01.49.31 163176 </Build>
+  <Executable> C:\SIMULIA\EstProducts\2020\win_b64\code\bin\standard.exe </Executable>
+</Installation>
+

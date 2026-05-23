@@ -54,6 +54,15 @@ const MODELS = {
     mode: 'mesh',
     color: new THREE.Color(0.45, 0.72, 0.90),
   },
+  fjw_reference: {
+    manifestUrl: '/data/fjw_reference_voxels/manifest.json',
+    label: 'FJW Reference Structure',
+    group: 'FJW',
+    mode: 'voxels',
+    badges: ['Three.js WebGL', 'FJW reference', 'Multi-part GLB', 'Interactive orbit'],
+    badges: ['Three.js WebGL', 'FJW reference', 'Instanced voxels', 'Atomic blocks'],
+    note: 'Each visible block is a real voxel instance, not a smoothed surface.',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -172,6 +181,7 @@ let selectedCell = null;
 let currentBg = '#1a1a2e';
 let currentMode = null;
 let dblClickListener = null;
+let voxelPartGroups = [];
 
 renderer.setClearColor(currentBg);
 
@@ -227,13 +237,21 @@ async function loadMeshScene(model) {
   gltf.scene.traverse((obj) => {
     if (!obj.isMesh) return;
     if (!obj.geometry.getAttribute('normal')) obj.geometry.computeVertexNormals();
-    const importedColor = model.color
-      ? model.color.clone()
-      : (obj.material?.color ? obj.material.color.clone() : new THREE.Color(0.76, 0.60, 0.42));
+    const partStyle = model.partStyles?.find((entry) => entry.match.test(obj.name ?? ''));
+    const importedColor = partStyle?.color
+      ? partStyle.color.clone()
+      : model.color
+        ? model.color.clone()
+        : (obj.material?.color ? obj.material.color.clone() : new THREE.Color(0.76, 0.60, 0.42));
     obj.material = new THREE.MeshStandardMaterial({
-      color: importedColor, roughness: 0.65, metalness: 0.05,
+      color: importedColor,
+      roughness: partStyle?.roughness ?? 0.65,
+      metalness: partStyle?.metalness ?? 0.05,
       side: THREE.FrontSide, polygonOffset: true,
       polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+      transparent: (partStyle?.opacity ?? 1.0) < 0.999,
+      opacity: partStyle?.opacity ?? 1.0,
+      depthWrite: (partStyle?.opacity ?? 1.0) >= 0.999,
     });
     obj.userData.baseColor = importedColor.clone();
     const idx = obj.geometry.index;
@@ -249,9 +267,75 @@ async function loadMeshScene(model) {
     `Meshes: <strong>${meshCount}</strong>`,
     `Size: <strong>${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} mm</strong>`,
   ].join('<br>');
-  badgesEl.innerHTML = ['Three.js WebGL', 'Voxelized mesh', 'Exposed-face render']
+  badgesEl.innerHTML = (model.badges ?? ['Three.js WebGL', 'Voxelized mesh', 'Exposed-face render'])
     .map(b => `<div class="badge">${b}</div>`).join('');
-  noteEl.textContent = 'Orbit: drag  ·  Zoom: scroll';
+  noteEl.textContent = model.note ?? 'Orbit: drag  ·  Zoom: scroll';
+}
+
+async function loadVoxelScene(model) {
+  const manifest = await fetch(model.manifestUrl).then((response) => {
+    if (!response.ok) throw new Error(`Failed to fetch voxel manifest: ${model.manifestUrl}`);
+    return response.json();
+  });
+
+  const spacing = new THREE.Vector3(...manifest.voxel_size_mm);
+  const origin = new THREE.Vector3(...manifest.origin_mm);
+  const cubeGeometry = new THREE.BoxGeometry(spacing.x, spacing.y, spacing.z);
+  const tempObject = new THREE.Object3D();
+  let visibleVoxelCount = 0;
+  voxelPartGroups = [];
+
+  for (const part of manifest.parts) {
+    const buffer = await fetch(part.url).then((response) => {
+      if (!response.ok) throw new Error(`Failed to fetch voxel binary: ${part.url}`);
+      return response.arrayBuffer();
+    });
+    const coords = new Uint16Array(buffer);
+    const count = coords.length / 3;
+    visibleVoxelCount += count;
+
+    const material = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(...part.color),
+      roughness: part.roughness ?? 0.85,
+      metalness: part.metalness ?? 0.0,
+      transparent: (part.opacity ?? 1.0) < 0.999,
+      opacity: part.opacity ?? 1.0,
+      depthWrite: (part.opacity ?? 1.0) >= 0.999,
+    });
+    const mesh = new THREE.InstancedMesh(cubeGeometry, material, count);
+    mesh.name = part.name;
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.userData.baseColor = material.color.clone();
+    mesh.userData.partName = part.name;
+    voxelPartGroups.push({ name: part.name, mesh });
+
+    for (let i = 0; i < count; i += 1) {
+      const x = coords[i * 3];
+      const y = coords[i * 3 + 1];
+      const z = coords[i * 3 + 2];
+      tempObject.position.set(
+        origin.x + (x + 0.5) * spacing.x,
+        origin.y + (y + 0.5) * spacing.y,
+        origin.z + (z + 0.5) * spacing.z,
+      );
+      tempObject.updateMatrix();
+      mesh.setMatrixAt(i, tempObject.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    world.add(mesh);
+  }
+
+  const bounds = new THREE.Box3().setFromObject(world);
+  frameFromBounds(bounds);
+  const size = bounds.getSize(new THREE.Vector3());
+  metaEl.innerHTML = [
+    `Visible voxels: <strong>${visibleVoxelCount.toLocaleString()}</strong>`,
+    `Grid: <strong>${manifest.grid_shape.join(' × ')}</strong>`,
+    `Size: <strong>${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} mm</strong>`,
+  ].join('<br>');
+  badgesEl.innerHTML = (model.badges ?? ['Three.js WebGL', 'Instanced voxels'])
+    .map((badge) => `<div class="badge">${badge}</div>`).join('');
+  noteEl.textContent = model.note ?? 'Orbit: drag  ·  Zoom: scroll';
 }
 
 async function loadVoronoiScene(model) {
@@ -339,10 +423,28 @@ function removeVoronoiControls() {
   document.querySelector('#explode')?.closest('label')?.remove();
 }
 
+function rebuildVoxelControls() {
+  if (!document.querySelector('#show-cortical_bone')) {
+    controlsSection.insertAdjacentHTML('beforeend', `
+      <label><span>Show cortical</span><input id="show-cortical_bone" type="checkbox" checked /></label>
+      <label><span>Show trabecular</span><input id="show-trabecular_bone" type="checkbox" checked /></label>
+      <label><span>Show cage</span><input id="show-cage" type="checkbox" checked /></label>
+    `);
+  }
+}
+
+function removeVoxelControls() {
+  document.querySelector('#show-cortical_bone')?.closest('label')?.remove();
+  document.querySelector('#show-trabecular_bone')?.closest('label')?.remove();
+  document.querySelector('#show-cage')?.closest('label')?.remove();
+}
+
 function bindControls(mode) {
   document.querySelector('#showFaces')?.addEventListener('change', (e) => {
     if (mode === 'voronoi') {
       for (const cell of cellGroups) for (const m of cell.meshes) m.visible = e.target.checked;
+    } else if (mode === 'voxels') {
+      for (const record of voxelPartGroups) record.mesh.visible = e.target.checked;
     } else {
       world.traverse(obj => { if (obj.isMesh) obj.visible = e.target.checked; });
     }
@@ -360,6 +462,15 @@ function bindControls(mode) {
     currentBg = e.target.value;
     renderer.setClearColor(currentBg);
   });
+  if (mode === 'voxels') {
+    for (const record of voxelPartGroups) {
+      const input = document.querySelector(`#show-${record.name}`);
+      if (!input) continue;
+      input.addEventListener('change', (e) => {
+        record.mesh.visible = e.target.checked;
+      });
+    }
+  }
 
   if (mode === 'voronoi') {
     dblClickListener = (event) => {
@@ -391,6 +502,7 @@ async function loadModel(key) {
   }
   clearSelection();
   cellGroups = [];
+  voxelPartGroups = [];
   while (world.children.length) world.remove(world.children[0]);
   metaEl.textContent = 'Loading…';
   badgesEl.innerHTML = '';
@@ -399,8 +511,13 @@ async function loadModel(key) {
   // Update controls
   if (model.mode === 'voronoi') {
     rebuildVoronoiControls();
+    removeVoxelControls();
+  } else if (model.mode === 'voxels') {
+    removeVoronoiControls();
+    rebuildVoxelControls();
   } else {
     removeVoronoiControls();
+    removeVoxelControls();
     // Reset explosion if switching away from voronoi
     document.querySelector('#explode') && (document.querySelector('#explode').value = 0);
   }
@@ -414,6 +531,8 @@ async function loadModel(key) {
   currentMode = model.mode;
   if (model.mode === 'mesh') {
     await loadMeshScene(model);
+  } else if (model.mode === 'voxels') {
+    await loadVoxelScene(model);
   } else {
     await loadVoronoiScene(model);
   }

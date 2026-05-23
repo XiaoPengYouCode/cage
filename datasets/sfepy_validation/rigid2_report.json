@@ -1,0 +1,44 @@
+{
+  "mesh_path": "/Users/flamingo/Projects/cage/datasets/sfepy_validation/rigid2_block.mesh",
+  "block_dims": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "block_shape_nodes": [
+    5,
+    5,
+    5
+  ],
+  "top_vertex_count": 25,
+  "reference_point_vertex": 64,
+  "reference_point_coordinate": [
+    0.0,
+    0.0,
+    0.5
+  ],
+  "load_vector": [
+    0.0,
+    0.0,
+    -1.0
+  ],
+  "solved_translation": [
+    -2.819997958877849e-05,
+    1.9200145503488067e-20,
+    1.2750235345691084e-05
+  ],
+  "solved_rotation": [
+    -7.61705012774699e-21,
+    -5.6399959177557035e-05,
+    3.120990990609612e-20
+  ],
+  "solved_rotation_norm": 5.6399959177557035e-05,
+  "max_top_error": 3.3881317890172014e-21,
+  "mean_top_error": 2.710505431213761e-22,
+  "top_center_displacement": [
+    -2.819997958877849e-05,
+    1.9200145503488067e-20,
+    1.2750235345691084e-05
+  ],
+  "verification_passed": true
+}

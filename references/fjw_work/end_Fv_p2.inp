@@ -1,0 +1,20 @@
+** 
+** OUTPUT REQUESTS
+** 
+*Restart, write, number interval=1, time marks=NO
+** 
+** FIELD OUTPUT: F-Output-2
+** 
+*Output, field
+*Element Output, elset=VERT-1.ALLE, directions=NO
+ENER, E, S,
+** 
+** FIELD OUTPUT: F-Output-1
+** 
+*Node Output, nset=VERT-1.ALLN
+U, 
+** 
+** HISTORY OUTPUT: H-Output-1
+** 
+*Output, history, variable=PRESELECT
+*End Step

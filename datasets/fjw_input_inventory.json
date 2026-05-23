@@ -1,0 +1,1190 @@
+{
+  "metadata": {
+    "source": "Inventory of all currently identified FJW inputs needed by the MATLAB + Abaqus workflow.",
+    "reference_dir": "references/fjw_work",
+    "built_from": [
+      "datasets/fjw_abaqus_inputs.json",
+      "references/fjw_work/time_dep.m",
+      "references/fjw_work/Three_Force_Time_Dep.m",
+      "references/fjw_work/end1.inp",
+      "references/fjw_work/end2.inp",
+      "references/fjw_work/end3.inp",
+      "references/fjw_work/end_Fv_p1.inp",
+      "references/fjw_work/end_Fv_p2.inp"
+    ]
+  },
+  "status_summary": {
+    "static_inputs_ready": true,
+    "static_inputs_comment": "The workflow's fixed external inputs are present in the repository.",
+    "runtime_state_still_generated_during_solve": true,
+    "runtime_state_comment": "State vectors such as obj_bo(t), E_obj(t), E_cage(t), U(t), V(t), and Fv(t) are not external files to prepare in advance."
+  },
+  "static_external_inputs": {
+    "mesh_and_region_files": [
+      {
+        "file": "references/fjw_work/nod_coo.mat",
+        "description": "Global node coordinates.",
+        "variables": [
+          {
+            "variable": "nod_coo",
+            "shape": [
+              593790,
+              3
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/ele_nod.mat",
+        "description": "Hexahedral element-to-node connectivity.",
+        "variables": [
+          {
+            "variable": "ele_nod",
+            "shape": [
+              544112,
+              8
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/B_3d.mat",
+        "description": "Element strain-displacement matrix kernel.",
+        "variables": [
+          {
+            "variable": "B",
+            "shape": [
+              6,
+              24
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/D_3d.mat",
+        "description": "Constitutive matrix kernel.",
+        "variables": [
+          {
+            "variable": "D",
+            "shape": [
+              6,
+              6
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/cage_ele.mat",
+        "description": "All cage-domain element ids.",
+        "variables": [
+          {
+            "variable": "cage_ele",
+            "shape": [
+              1,
+              23807
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/desi_ele.mat",
+        "description": "Optimizable cage element ids.",
+        "variables": [
+          {
+            "variable": "desi_ele",
+            "shape": [
+              1,
+              18734
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/obj_ele.mat",
+        "description": "Bone objective-region element ids.",
+        "variables": [
+          {
+            "variable": "obj_ele",
+            "shape": [
+              1,
+              5073
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/cor_ele.mat",
+        "description": "Background cortical-bone element ids.",
+        "variables": [
+          {
+            "variable": "cor_ele",
+            "shape": [
+              1,
+              90207
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      },
+      {
+        "file": "references/fjw_work/tra_ele.mat",
+        "description": "Background trabecular-bone element ids.",
+        "variables": [
+          {
+            "variable": "tra_ele",
+            "shape": [
+              1,
+              430098
+            ],
+            "matlab_type": "double"
+          }
+        ]
+      }
+    ],
+    "node_sets_from_templates": [
+      {
+        "name": "TOP_NOD",
+        "source_file": "references/fjw_work/end1.inp",
+        "count": 3936,
+        "first_node_ids": [
+          589145,
+          589146,
+          589147,
+          589148,
+          589149
+        ],
+        "last_node_ids": [
+          593076,
+          593077,
+          593078,
+          593079,
+          593080
+        ],
+        "used_for": "Top-end coupled loading surface."
+      },
+      {
+        "name": "BOT_NOD",
+        "source_file": "references/fjw_work/end1.inp",
+        "count": 5189,
+        "first_node_ids": [
+          5356,
+          5357,
+          5358,
+          5359,
+          5360
+        ],
+        "last_node_ids": [
+          577117,
+          577118,
+          577119,
+          577120,
+          577121
+        ],
+        "used_for": "Bottom-end fixed support surface."
+      }
+    ],
+    "boundary_and_load_inputs": {
+      "assembly_controls": {
+        "reference_nodes": [
+          {
+            "node_id": 1,
+            "coordinates": [
+              46.200001,
+              19.200001,
+              7.8
+            ]
+          },
+          {
+            "node_id": 2,
+            "coordinates": [
+              48.599998,
+              18.6,
+              73.800003
+            ]
+          }
+        ],
+        "helper_node_sets": [
+          {
+            "name": "M_SET-1",
+            "members": [
+              1
+            ]
+          },
+          {
+            "name": "M_SET-2",
+            "members": [
+              2
+            ]
+          }
+        ],
+        "surfaces": [
+          {
+            "name": "VERT-1_BOT_NOD_CNS_",
+            "type": "NODE",
+            "source": "VERT-1.BOT_NOD, 1."
+          },
+          {
+            "name": "VERT-1_TOP_NOD_CNS_",
+            "type": "NODE",
+            "source": "VERT-1.TOP_NOD, 1."
+          }
+        ],
+        "couplings": [
+          {
+            "name": "CONSTRAINT-1",
+            "reference_node_set": "M_SET-1",
+            "surface": "VERT-1_BOT_NOD_CNS_",
+            "type": "KINEMATIC"
+          },
+          {
+            "name": "CONSTRAINT-2",
+            "reference_node_set": "M_SET-2",
+            "surface": "VERT-1_TOP_NOD_CNS_",
+            "type": "KINEMATIC"
+          }
+        ]
+      },
+      "boundary_conditions": [
+        {
+          "target": "M_SET-1",
+          "constraint": "ENCASTRE"
+        }
+      ],
+      "forward_load_cases": {
+        "force_1": {
+          "template": "references/fjw_work/end1.inp",
+          "loads": [
+            {
+              "target": "M_SET-2",
+              "dof": 3,
+              "magnitude": -1200.0,
+              "op": "NEW"
+            }
+          ]
+        },
+        "force_2": {
+          "template": "references/fjw_work/end2.inp",
+          "loads": [
+            {
+              "target": "M_SET-2",
+              "dof": 4,
+              "magnitude": -7500.0,
+              "op": "NEW"
+            }
+          ]
+        },
+        "force_3": {
+          "template": "references/fjw_work/end3.inp",
+          "loads": [
+            {
+              "target": "M_SET-2",
+              "dof": 5,
+              "magnitude": -7500.0,
+              "op": "NEW"
+            }
+          ]
+        }
+      },
+      "adjoint_load_template": {
+        "prefix_template": "references/fjw_work/end_Fv_p1.inp",
+        "suffix_template": "references/fjw_work/end_Fv_p2.inp",
+        "boundary_conditions": [
+          {
+            "target": "M_SET-1",
+            "constraint": "ENCASTRE"
+          }
+        ],
+        "step": {
+          "name": "Load",
+          "nlgeom": "NO",
+          "solver": "ITERATIVE",
+          "flags": [],
+          "static_parameters": [
+            1.0,
+            1.0,
+            1e-05,
+            1.0
+          ]
+        },
+        "injection_rule": {
+          "description": "Insert one *Cload block per node in Fv_set between prefix and suffix templates.",
+          "target_format": "VERT-1.<node_id>",
+          "components": [
+            1,
+            2,
+            3
+          ],
+          "magnitude_source": "Fv[(node_id-1)*3 + component_index]"
+        }
+      }
+    },
+    "material_and_discretization_inputs": {
+      "materials": {
+        "cage_design_domain": {
+          "material_prefix": "CAGE_",
+          "section_elset_prefix": "DESI_E_ELE",
+          "bucket_index_range": [
+            0,
+            100
+          ],
+          "bucket_index_expression": "round(E_cage / E0_cage * 100)",
+          "constitutive_expression": "E_cage = min(E0_cage, Emin_cage + E0_cage * design_cage^3)",
+          "discretization_note": "Bucket 0 maps to a nonzero floor modulus in the Abaqus template.",
+          "materials": [
+            {
+              "name": "CAGE_0",
+              "density": 1e-06,
+              "youngs_modulus": 110.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_1",
+              "density": 1e-06,
+              "youngs_modulus": 1100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_2",
+              "density": 1e-06,
+              "youngs_modulus": 2200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_3",
+              "density": 1e-06,
+              "youngs_modulus": 3300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_4",
+              "density": 1e-06,
+              "youngs_modulus": 4400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_5",
+              "density": 1e-06,
+              "youngs_modulus": 5500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_6",
+              "density": 1e-06,
+              "youngs_modulus": 6600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_7",
+              "density": 1e-06,
+              "youngs_modulus": 7700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_8",
+              "density": 1e-06,
+              "youngs_modulus": 8800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_9",
+              "density": 1e-06,
+              "youngs_modulus": 9900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_10",
+              "density": 1e-06,
+              "youngs_modulus": 11000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_11",
+              "density": 1e-06,
+              "youngs_modulus": 12100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_12",
+              "density": 1e-06,
+              "youngs_modulus": 13200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_13",
+              "density": 1e-06,
+              "youngs_modulus": 14300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_14",
+              "density": 1e-06,
+              "youngs_modulus": 15400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_15",
+              "density": 1e-06,
+              "youngs_modulus": 16500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_16",
+              "density": 1e-06,
+              "youngs_modulus": 17600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_17",
+              "density": 1e-06,
+              "youngs_modulus": 18700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_18",
+              "density": 1e-06,
+              "youngs_modulus": 19800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_19",
+              "density": 1e-06,
+              "youngs_modulus": 20900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_20",
+              "density": 1e-06,
+              "youngs_modulus": 22000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_21",
+              "density": 1e-06,
+              "youngs_modulus": 23100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_22",
+              "density": 1e-06,
+              "youngs_modulus": 24200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_23",
+              "density": 1e-06,
+              "youngs_modulus": 25300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_24",
+              "density": 1e-06,
+              "youngs_modulus": 26400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_25",
+              "density": 1e-06,
+              "youngs_modulus": 27500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_26",
+              "density": 1e-06,
+              "youngs_modulus": 28600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_27",
+              "density": 1e-06,
+              "youngs_modulus": 29700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_28",
+              "density": 1e-06,
+              "youngs_modulus": 30800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_29",
+              "density": 1e-06,
+              "youngs_modulus": 31900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_30",
+              "density": 1e-06,
+              "youngs_modulus": 33000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_31",
+              "density": 1e-06,
+              "youngs_modulus": 34100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_32",
+              "density": 1e-06,
+              "youngs_modulus": 35200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_33",
+              "density": 1e-06,
+              "youngs_modulus": 36300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_34",
+              "density": 1e-06,
+              "youngs_modulus": 37400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_35",
+              "density": 1e-06,
+              "youngs_modulus": 38500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_36",
+              "density": 1e-06,
+              "youngs_modulus": 39600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_37",
+              "density": 1e-06,
+              "youngs_modulus": 40700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_38",
+              "density": 1e-06,
+              "youngs_modulus": 41800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_39",
+              "density": 1e-06,
+              "youngs_modulus": 42900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_40",
+              "density": 1e-06,
+              "youngs_modulus": 44000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_41",
+              "density": 1e-06,
+              "youngs_modulus": 45100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_42",
+              "density": 1e-06,
+              "youngs_modulus": 46200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_43",
+              "density": 1e-06,
+              "youngs_modulus": 47300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_44",
+              "density": 1e-06,
+              "youngs_modulus": 48400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_45",
+              "density": 1e-06,
+              "youngs_modulus": 49500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_46",
+              "density": 1e-06,
+              "youngs_modulus": 50600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_47",
+              "density": 1e-06,
+              "youngs_modulus": 51700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_48",
+              "density": 1e-06,
+              "youngs_modulus": 52800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_49",
+              "density": 1e-06,
+              "youngs_modulus": 53900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_50",
+              "density": 1e-06,
+              "youngs_modulus": 55000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_51",
+              "density": 1e-06,
+              "youngs_modulus": 56100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_52",
+              "density": 1e-06,
+              "youngs_modulus": 57200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_53",
+              "density": 1e-06,
+              "youngs_modulus": 58300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_54",
+              "density": 1e-06,
+              "youngs_modulus": 59400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_55",
+              "density": 1e-06,
+              "youngs_modulus": 60500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_56",
+              "density": 1e-06,
+              "youngs_modulus": 61600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_57",
+              "density": 1e-06,
+              "youngs_modulus": 62700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_58",
+              "density": 1e-06,
+              "youngs_modulus": 63800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_59",
+              "density": 1e-06,
+              "youngs_modulus": 64900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_60",
+              "density": 1e-06,
+              "youngs_modulus": 66000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_61",
+              "density": 1e-06,
+              "youngs_modulus": 67100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_62",
+              "density": 1e-06,
+              "youngs_modulus": 68200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_63",
+              "density": 1e-06,
+              "youngs_modulus": 69300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_64",
+              "density": 1e-06,
+              "youngs_modulus": 70400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_65",
+              "density": 1e-06,
+              "youngs_modulus": 71500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_66",
+              "density": 1e-06,
+              "youngs_modulus": 72600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_67",
+              "density": 1e-06,
+              "youngs_modulus": 73700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_68",
+              "density": 1e-06,
+              "youngs_modulus": 74800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_69",
+              "density": 1e-06,
+              "youngs_modulus": 75900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_70",
+              "density": 1e-06,
+              "youngs_modulus": 77000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_71",
+              "density": 1e-06,
+              "youngs_modulus": 78100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_72",
+              "density": 1e-06,
+              "youngs_modulus": 79200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_73",
+              "density": 1e-06,
+              "youngs_modulus": 80300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_74",
+              "density": 1e-06,
+              "youngs_modulus": 81400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_75",
+              "density": 1e-06,
+              "youngs_modulus": 82500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_76",
+              "density": 1e-06,
+              "youngs_modulus": 83600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_77",
+              "density": 1e-06,
+              "youngs_modulus": 84700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_78",
+              "density": 1e-06,
+              "youngs_modulus": 85800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_79",
+              "density": 1e-06,
+              "youngs_modulus": 86900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_80",
+              "density": 1e-06,
+              "youngs_modulus": 88000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_81",
+              "density": 1e-06,
+              "youngs_modulus": 89100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_82",
+              "density": 1e-06,
+              "youngs_modulus": 90200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_83",
+              "density": 1e-06,
+              "youngs_modulus": 91300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_84",
+              "density": 1e-06,
+              "youngs_modulus": 92400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_85",
+              "density": 1e-06,
+              "youngs_modulus": 93500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_86",
+              "density": 1e-06,
+              "youngs_modulus": 94600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_87",
+              "density": 1e-06,
+              "youngs_modulus": 95700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_88",
+              "density": 1e-06,
+              "youngs_modulus": 96800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_89",
+              "density": 1e-06,
+              "youngs_modulus": 97900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_90",
+              "density": 1e-06,
+              "youngs_modulus": 99000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_91",
+              "density": 1e-06,
+              "youngs_modulus": 100100.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_92",
+              "density": 1e-06,
+              "youngs_modulus": 101200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_93",
+              "density": 1e-06,
+              "youngs_modulus": 102300.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_94",
+              "density": 1e-06,
+              "youngs_modulus": 103400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_95",
+              "density": 1e-06,
+              "youngs_modulus": 104500.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_96",
+              "density": 1e-06,
+              "youngs_modulus": 105600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_97",
+              "density": 1e-06,
+              "youngs_modulus": 106700.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_98",
+              "density": 1e-06,
+              "youngs_modulus": 107800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_99",
+              "density": 1e-06,
+              "youngs_modulus": 108900.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "CAGE_100",
+              "density": 1e-06,
+              "youngs_modulus": 110000.0,
+              "poisson_ratio": 0.3
+            }
+          ]
+        },
+        "bone_objective_domain": {
+          "material_prefix": "BONE_",
+          "section_elset_prefix": "OBJ_E_ELE",
+          "bucket_index_range": [
+            0,
+            10
+          ],
+          "bucket_index_expression": "round(E_obj / E0_bo * 10)",
+          "constitutive_expression": "E_obj = min(E0_bo, Emin_bo + E0_bo * (obj_bo / b_max)^3)",
+          "discretization_note": "Bucket 0 maps to a nonzero floor modulus in the Abaqus template.",
+          "materials": [
+            {
+              "name": "BONE_0",
+              "density": 1e-06,
+              "youngs_modulus": 12.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_1",
+              "density": 1e-06,
+              "youngs_modulus": 1200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_2",
+              "density": 1e-06,
+              "youngs_modulus": 2400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_3",
+              "density": 1e-06,
+              "youngs_modulus": 3600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_4",
+              "density": 1e-06,
+              "youngs_modulus": 4800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_5",
+              "density": 1e-06,
+              "youngs_modulus": 6000.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_6",
+              "density": 1e-06,
+              "youngs_modulus": 7200.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_7",
+              "density": 1e-06,
+              "youngs_modulus": 8400.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_8",
+              "density": 1e-06,
+              "youngs_modulus": 9600.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_9",
+              "density": 1e-06,
+              "youngs_modulus": 10800.0,
+              "poisson_ratio": 0.3
+            },
+            {
+              "name": "BONE_10",
+              "density": 1e-06,
+              "youngs_modulus": 12000.0,
+              "poisson_ratio": 0.3
+            }
+          ]
+        },
+        "bone_background_domains": [
+          {
+            "elset": "NODESI_ELE_COR",
+            "material": "BONE_COR",
+            "youngs_modulus": 18000.0,
+            "poisson_ratio": 0.3
+          },
+          {
+            "elset": "NODESI_ELE_TRA",
+            "material": "BONE_1",
+            "youngs_modulus": 1200.0,
+            "poisson_ratio": 0.3
+          }
+        ]
+      },
+      "section_assignments_count": 114,
+      "section_assignments_source": "datasets/fjw_abaqus_inputs.json#section_assignments",
+      "discretization_rules": {
+        "cage_elset_generation": {
+          "expression": "index = round(E_cage / E0_cage * 100)",
+          "elset_name": "DESI_E_ELE{index}",
+          "material_name": "CAGE_{index}"
+        },
+        "objective_bone_elset_generation": {
+          "expression": "index = round(E_obj / E0_bo * 10)",
+          "elset_name": "OBJ_E_ELE{index}",
+          "material_name": "BONE_{index}"
+        },
+        "objective_bone_state_groups": {
+          "expression": "index = round(obj_bo / b_max * 10)",
+          "elset_name": "OBJ_BO_ELE{index}",
+          "usage": "Bookkeeping groups emitted by edit_objbo_inp.m before the template tail is appended."
+        }
+      }
+    },
+    "global_constants": {
+      "grid_shape": [
+        152,
+        131,
+        134
+      ],
+      "simulation_constants": {
+        "voxel_volume": 0.216,
+        "time_step_dt": 1.0,
+        "num_time_steps": 3,
+        "bone_density_upper_bound_b_max": 1.86,
+        "bone_modulus": {
+          "E0_bo": 12000.0,
+          "Emin_bo": 1.2
+        },
+        "cage_modulus": {
+          "E0_cage": 110000.0,
+          "Emin_cage": 11.0
+        },
+        "initial_conditions": {
+          "single_load_design_cage": 0.2,
+          "three_load_design_cage": 0.3,
+          "initial_bone_density": 0.36
+        }
+      }
+    },
+    "input_templates": [
+      {
+        "file": "references/fjw_work/ini.inp",
+        "role": "Base Abaqus part template before node/element and material grouping edits."
+      },
+      {
+        "file": "references/fjw_work/end1.inp",
+        "role": "Forward load case 1 template tail."
+      },
+      {
+        "file": "references/fjw_work/end2.inp",
+        "role": "Forward load case 2 template tail."
+      },
+      {
+        "file": "references/fjw_work/end3.inp",
+        "role": "Forward load case 3 template tail."
+      },
+      {
+        "file": "references/fjw_work/end_Fv_p1.inp",
+        "role": "Adjoint load template prefix."
+      },
+      {
+        "file": "references/fjw_work/end_Fv_p2.inp",
+        "role": "Adjoint load template suffix."
+      }
+    ]
+  },
+  "derived_initial_state_inputs": [
+    {
+      "name": "design_cage(0)",
+      "how_built": "Sample ini_cage on the first node of each desi_ele element.",
+      "source_files": [
+        "references/fjw_work/time_dep.m",
+        "references/fjw_work/Three_Force_Time_Dep.m"
+      ],
+      "value": {
+        "single_load_default": 0.2,
+        "three_load_default": 0.3
+      }
+    },
+    {
+      "name": "obj_bo(0)",
+      "how_built": "Sample ini_str on the first node of each obj_ele element.",
+      "source_files": [
+        "references/fjw_work/time_dep.m",
+        "references/fjw_work/Calculate_Force_1.m"
+      ],
+      "value": 0.36
+    }
+  ],
+  "runtime_state_variables": [
+    {
+      "name": "E_obj(t)",
+      "role": "Bone-region modulus per time step.",
+      "built_from": "obj_bo(t), b_max, E0_bo, Emin_bo"
+    },
+    {
+      "name": "E_cage(t)",
+      "role": "Cage design-domain modulus per time step.",
+      "built_from": "design_cage, E0_cage, Emin_cage"
+    },
+    {
+      "name": "U(t)",
+      "role": "Forward displacement field from Abaqus or a replacement solver.",
+      "built_from": "Mesh, BCs, loads, material assignment at time t"
+    },
+    {
+      "name": "bone_s(t)",
+      "role": "Mechanical stimulus on objective bone elements.",
+      "built_from": "U(t), B, D, E_obj(t), obj_bo(t)"
+    },
+    {
+      "name": "obj_bo(t+1)",
+      "role": "Updated bone density after one remodeling step.",
+      "built_from": "obj_bo(t), bone_delta(bone_s(t)), dt"
+    },
+    {
+      "name": "Fv(t)",
+      "role": "Adjoint right-hand-side nodal load vector.",
+      "built_from": "d_bone_delta, Fai(t+1), U(t), obj_bo(t), B, D"
+    },
+    {
+      "name": "V(t)",
+      "role": "Adjoint displacement field.",
+      "built_from": "Mesh, BCs, adjoint load Fv(t), material assignment at time t"
+    }
+  ],
+  "what_is_missing_before_python_reimplementation": [
+    {
+      "item": "Direct Python-side loader for MAT arrays into a unified domain object.",
+      "severity": "implementation_gap"
+    },
+    {
+      "item": "Direct Python-side reconstruction of the full Abaqus model from mesh arrays and set arrays.",
+      "severity": "implementation_gap"
+    },
+    {
+      "item": "Reference result comparison between Abaqus outputs and the future Python solver outputs.",
+      "severity": "validation_gap"
+    }
+  ]
+}

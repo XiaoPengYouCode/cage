@@ -1,0 +1,13 @@
+{
+  "case_name": "minimal_mma_one_step",
+  "source": "Pure Python port of references/fjw_work/mmasub.m and subsolv.m",
+  "historical_runtime_outputs_missing": [
+    "Force_*.mat",
+    "U1_ele_nod_dir*.mat",
+    "obj_bo*.mat",
+    "ob*.mat"
+  ],
+  "files": [
+    "mma_one_step.npz"
+  ]
+}

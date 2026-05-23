@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -12,6 +13,30 @@ from fem_analysis.annular_cylinder import (
     TrussInfillConfig,
     run_annular_cylinder_demo,
 )
+from fem_analysis.fjw_direct_solver import (
+    FJWDirectSolverConfig,
+    build_fjw_direct_problem,
+    build_fjw_direct_problem_setup,
+    solve_fjw_direct_case,
+)
+from fem_analysis.fjw_environment import (
+    check_fjw_runtime_environment,
+    write_fjw_preflight_report,
+)
+from fem_analysis.fjw_workflow_driver import FJWWorkflowDriverRequest
+from fem_analysis.fjw_workflow_loaders import load_fjw_workflow_state
+from fem_analysis.fjw_workflow_pipeline import (
+    FJWAbaqusWorkflowConfig,
+    execute_workflow_jobs,
+    prepare_workflow,
+)
+from fem_analysis.fjw_validation import (
+    capture_fjw_golden_run,
+    validate_run_directory,
+    write_validation_report,
+)
+from fem_analysis.fjw_workflow_optimize import FJWOptimizationConfig, run_fjw_optimization
+from fem_analysis.fjw_workflow_runner import run_fjw_sfepy_workflow_iteration
 
 
 def build_parser(prog: str, description: str) -> argparse.ArgumentParser:
@@ -113,10 +138,295 @@ def build_annular_cylinder_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_fjw_workflow_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-workflow",
+        description="Generate a Python-managed dry-run of the archived FJW Abaqus workflow.",
+    )
+    parser.add_argument(
+        "--reference-dir",
+        default="references/fjw_work",
+        help="Directory containing the archived FJW reference files.",
+    )
+    parser.add_argument(
+        "--run-directory",
+        default="runs/fjw_workflow",
+        help="Directory where generated Abaqus inputs and workflow metadata should be written.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("single-force", "three-force"),
+        default="three-force",
+        help="Whether to prepare one forward load case or all three archived load cases.",
+    )
+    parser.add_argument(
+        "--cpus",
+        type=int,
+        default=8,
+        help="CPU count to encode into generated Abaqus job commands.",
+    )
+    parser.add_argument(
+        "--time-steps",
+        type=int,
+        default=3,
+        help="Number of archived time steps to stage in the workflow.",
+    )
+    parser.add_argument(
+        "--abaqus-executable",
+        default="abaqus",
+        help="Abaqus executable name used when job commands are later executed.",
+    )
+    parser.add_argument(
+        "--execute-jobs",
+        action="store_true",
+        help="Also execute the prepared job list and write workflow_execution_manifest.json.",
+    )
+    parser.add_argument(
+        "--real-run",
+        action="store_true",
+        help="Actually launch Abaqus jobs instead of only producing dry-run execution artifacts.",
+    )
+    parser.add_argument(
+        "--forward-only",
+        action="store_true",
+        help="Only execute forward jobs when --execute-jobs is enabled.",
+    )
+    parser.add_argument(
+        "--adjoint-only",
+        action="store_true",
+        help="Only execute adjoint jobs when --execute-jobs is enabled.",
+    )
+    return parser
+
+
+def build_fjw_direct_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-direct",
+        description="Build or solve the FJW direct SfePy model from the archived reference inputs.",
+    )
+    parser.add_argument(
+        "--reference-dir",
+        default="references/fjw_work",
+        help="Directory containing the archived FJW reference files.",
+    )
+    parser.add_argument(
+        "--abaqus-inputs",
+        default="datasets/fjw_abaqus_inputs.json",
+        help="Structured material/load input JSON extracted from the archived .inp templates.",
+    )
+    parser.add_argument(
+        "--input-inventory",
+        default="datasets/fjw_input_inventory.json",
+        help="Structured inventory JSON for static external inputs.",
+    )
+    parser.add_argument(
+        "--end1-template",
+        default="references/fjw_work/end1.inp",
+        help="Template used to recover the original top/bottom node sets.",
+    )
+    parser.add_argument(
+        "--initial-design-mode",
+        choices=("single_load", "three_load"),
+        default="three_load",
+        help="Initial cage density field used to construct the material buckets.",
+    )
+    parser.add_argument(
+        "--load-case",
+        default="force_1",
+        help="Archived load case name to build or solve.",
+    )
+    parser.add_argument(
+        "--build-problem",
+        action="store_true",
+        help="Also instantiate the full SfePy Problem after building the setup summary.",
+    )
+    parser.add_argument(
+        "--solve",
+        action="store_true",
+        help="Run the direct solve after setup/build validation. This can be very heavy on the full model.",
+    )
+    parser.add_argument(
+        "--sfepy-linear-solver",
+        choices=("scipy_direct", "scipy_iterative", "petsc_mumps"),
+        default="scipy_iterative",
+        help="SfePy linear solver profile. scipy_iterative is the Python-only default; scipy_direct is useful for small checks; petsc_mumps is optional.",
+    )
+    return parser
+
+
+def build_fjw_sfepy_iteration_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-sfepy-iterate",
+        description="Run one full FJW optimization iteration with the SfePy direct solver backend.",
+    )
+    parser.add_argument(
+        "--reference-dir",
+        default="references/fjw_work",
+        help="Directory containing the archived FJW reference files.",
+    )
+    parser.add_argument(
+        "--abaqus-inputs",
+        default="datasets/fjw_abaqus_inputs.json",
+        help="Structured material/load input JSON extracted from the archived .inp templates.",
+    )
+    parser.add_argument(
+        "--input-inventory",
+        default="datasets/fjw_input_inventory.json",
+        help="Structured inventory JSON for static external inputs.",
+    )
+    parser.add_argument(
+        "--end1-template",
+        default="references/fjw_work/end1.inp",
+        help="Template used to recover the original top/bottom node sets.",
+    )
+    parser.add_argument(
+        "--initial-design-mode",
+        choices=("single_load", "three_load"),
+        default="three_load",
+        help="Initial cage density field used to construct the material buckets.",
+    )
+    parser.add_argument(
+        "--num-time-steps",
+        type=int,
+        default=1,
+        help="Number of biology time steps to run in this iteration.",
+    )
+    parser.add_argument(
+        "--sfepy-linear-solver",
+        choices=("scipy_direct", "scipy_iterative", "petsc_mumps"),
+        default="scipy_iterative",
+        help="SfePy linear solver profile. scipy_iterative is the Python-only default; scipy_direct is useful for small checks; petsc_mumps is optional.",
+    )
+    return parser
+
+
+def build_fjw_optimize_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-optimize",
+        description="Run the Python-managed FJW outer optimization loop with checkpoint/resume support.",
+    )
+    parser.add_argument("--reference-dir", default="references/fjw_work")
+    parser.add_argument("--abaqus-inputs", default="datasets/fjw_abaqus_inputs.json")
+    parser.add_argument("--input-inventory", default="datasets/fjw_input_inventory.json")
+    parser.add_argument("--end1-template", default="references/fjw_work/end1.inp")
+    parser.add_argument("--backend", choices=("abaqus", "sfepy"), default="sfepy")
+    parser.add_argument("--mode", choices=("three-force",), default="three-force")
+    parser.add_argument("--max-iterations", type=int, default=1)
+    parser.add_argument("--delta-tol", type=float, default=1.0e-4)
+    parser.add_argument("--num-time-steps", type=int, default=3)
+    parser.add_argument("--run-directory", default="runs/fjw_optimize")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint-every", type=int, default=1)
+    parser.add_argument("--abaqus-executable", default="abaqus")
+    parser.add_argument("--cpus", type=int, default=8)
+    parser.add_argument(
+        "--real-run",
+        action="store_true",
+        help="Required for the Abaqus backend; dry-run jobs do not produce displacement vectors.",
+    )
+    parser.add_argument(
+        "--sfepy-linear-solver",
+        choices=("scipy_direct", "scipy_iterative", "petsc_mumps"),
+        default="scipy_iterative",
+        help="SfePy linear solver profile. scipy_iterative is the Python-only default; petsc_mumps is optional for large runs.",
+    )
+    return parser
+
+
+def build_fjw_validate_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-validate",
+        description="Validate FJW workflow artifacts and optionally compare them with golden outputs.",
+    )
+    parser.add_argument("--run-directory", default="runs/fjw_optimize")
+    parser.add_argument("--golden-directory", default=None)
+    parser.add_argument("--output", default=None)
+    return parser
+
+
+def build_fjw_capture_golden_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-capture-golden",
+        description="Capture a compact golden manifest/checksum set from a completed FJW run.",
+    )
+    parser.add_argument("--run-directory", default="runs/fjw_optimize")
+    parser.add_argument("--golden-directory", default="datasets/fjw_golden/captured_run")
+    parser.add_argument(
+        "--copy-max-bytes",
+        type=int,
+        default=5_000_000,
+        help="Copy files up to this size into the golden directory; larger files are checksum-only.",
+    )
+    parser.add_argument(
+        "--no-copy-files",
+        action="store_true",
+        help="Write only golden_manifest.json without copying selected files.",
+    )
+    parser.add_argument(
+        "--allow-invalid-run",
+        action="store_true",
+        help="Allow capture even when the run directory fails structural validation.",
+    )
+    return parser
+
+
+def build_fjw_preflight_parser() -> argparse.ArgumentParser:
+    parser = build_parser(
+        prog="fem-analysis fjw-preflight",
+        description="Check whether this machine can run the FJW runtime validation gates.",
+    )
+    parser.add_argument(
+        "--reference-dir",
+        default="references/fjw_work",
+        help="Directory containing the archived FJW reference files.",
+    )
+    parser.add_argument(
+        "--abaqus-executable",
+        default="abaqus",
+        help="Abaqus executable name or path to check.",
+    )
+    parser.add_argument(
+        "--golden-directory",
+        default=None,
+        help="Optional captured golden directory containing golden_manifest.json.",
+    )
+    parser.add_argument(
+        "--require-abaqus",
+        action="store_true",
+        help="Fail if Abaqus is unavailable.",
+    )
+    parser.add_argument(
+        "--require-petsc-mumps",
+        action="store_true",
+        help="Fail if petsc4py is unavailable.",
+    )
+    parser.add_argument(
+        "--require-golden",
+        action="store_true",
+        help="Fail if no historical or captured runtime golden outputs are found.",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Optional JSON report path.",
+    )
+    return parser
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = list(argv) if argv is not None else sys.argv[1:]
-    command = args[0] if args and args[0] == "annular-cylinder" else "annular-cylinder"
-    parser = build_annular_cylinder_parser()
+    known_commands = {
+        "annular-cylinder": build_annular_cylinder_parser,
+        "fjw-workflow": build_fjw_workflow_parser,
+        "fjw-direct": build_fjw_direct_parser,
+        "fjw-sfepy-iterate": build_fjw_sfepy_iteration_parser,
+        "fjw-optimize": build_fjw_optimize_parser,
+        "fjw-validate": build_fjw_validate_parser,
+        "fjw-capture-golden": build_fjw_capture_golden_parser,
+        "fjw-preflight": build_fjw_preflight_parser,
+    }
+    command = args[0] if args and args[0] in known_commands else "annular-cylinder"
+    parser = known_commands[command]()
     parsed = parser.parse_args(args[1:] if args and args[0] == command else args)
     parsed.command = command
     return parsed
@@ -182,6 +492,246 @@ def handle_annular_cylinder(args: argparse.Namespace) -> None:
     )
 
 
+def handle_fjw_workflow(args: argparse.Namespace) -> None:
+    if args.forward_only and args.adjoint_only:
+        raise ValueError("--forward-only and --adjoint-only cannot be used together.")
+
+    config = FJWAbaqusWorkflowConfig(
+        reference_dir=Path(args.reference_dir),
+        run_directory=Path(args.run_directory),
+        abaqus_executable=args.abaqus_executable,
+        cpus=args.cpus,
+        mode=args.mode,
+        time_steps=args.time_steps,
+        dry_run=not args.real_run,
+    )
+    prepared = prepare_workflow(config)
+    manifest = prepared.manifest
+    payload: dict[str, object] = {
+        "run_directory": str(Path(args.run_directory).resolve()),
+        "job_count": len(manifest.generated_jobs),
+        "removed_stale_locks": manifest.removed_stale_locks,
+    }
+
+    if args.execute_jobs:
+        execution_manifest = execute_workflow_jobs(
+            prepared,
+            include_forward=not args.adjoint_only,
+            include_adjoint=not args.forward_only,
+            dry_run=not args.real_run,
+        )
+        payload["execution_job_count"] = len(execution_manifest.jobs)
+        payload["execution_manifest"] = str(
+            (config.run_directory / "workflow_execution_manifest.json").resolve()
+        )
+
+    print(json.dumps(payload, indent=2))
+
+
+def handle_fjw_direct(args: argparse.Namespace) -> None:
+    workflow_state = _load_workflow_state_from_args(args)
+    setup = build_fjw_direct_problem_setup(
+        workflow_state,
+        load_case_name=args.load_case,
+    )
+    payload: dict[str, object] = {
+        "reference_dir": str(workflow_state.reference_dir.resolve()),
+        "load_case": setup.load_case.name,
+        "initial_design_mode": workflow_state.initial_state.mode,
+        "node_count": int(setup.mesh_coordinates_mm.shape[0]),
+        "element_count": int(setup.mesh_connectivity.shape[0]),
+        "material_group_count": len(setup.material_groups),
+        "top_node_count": int(setup.top_vertex_ids.size),
+        "bottom_node_count": int(setup.bottom_vertex_ids.size),
+        "top_rp_vertex_id": int(setup.top_rp_vertex_id),
+        "bottom_rp_vertex_id": int(setup.bottom_rp_vertex_id),
+        "load_vector": setup.load_vector.tolist(),
+    }
+
+    if args.build_problem:
+        problem = build_fjw_direct_problem(
+            setup,
+            config=FJWDirectSolverConfig(linear_solver_kind=args.sfepy_linear_solver),
+        )
+        payload["problem_name"] = problem.name
+        payload["equation_names"] = [equation.name for equation in problem.equations]
+
+    if args.solve:
+        result = solve_fjw_direct_case(
+            workflow_state,
+            load_case_name=args.load_case,
+            config=FJWDirectSolverConfig(linear_solver_kind=args.sfepy_linear_solver),
+        )
+        payload["max_displacement_mm"] = result.max_displacement_mm
+        payload["top_rp_displacement"] = result.top_rp_displacement.tolist()
+        payload["top_rp_rotation"] = result.top_rp_rotation.tolist()
+
+    print(json.dumps(payload, indent=2))
+
+
+def handle_fjw_sfepy_iteration(args: argparse.Namespace) -> None:
+    workflow_state = _load_workflow_state_from_args(args)
+    result = run_fjw_sfepy_workflow_iteration(
+        driver_request=FJWWorkflowDriverRequest(
+            workflow_state=workflow_state,
+            initial_design_mode=args.initial_design_mode,
+            num_time_steps=args.num_time_steps,
+        ),
+        solver_config=_build_sfepy_workflow_solver_config(args.sfepy_linear_solver),
+    )
+    aggregate = result.iteration_state.aggregate_terms
+    payload: dict[str, object] = {
+        "backend": "sfepy_direct",
+        "initial_design_mode": result.workflow_state.initial_state.mode,
+        "num_time_steps": int(args.num_time_steps),
+        "iteration_index": result.iteration_state.iteration_index,
+        "has_placeholder_adjoint": result.iteration_state.has_placeholder_adjoint,
+        "design_size": int(result.design.size),
+        "initial_design_sum": float(result.design.sum()),
+        "next_design_sum": None if result.iteration_state.next_design is None else float(result.iteration_state.next_design.sum()),
+        "load_cases": list(result.load_case_names),
+        "terminal_bo_sum_by_case": {
+            case_result.load_case_name: case_result.terminal_bo_sum
+            for case_result in result.single_case_results
+        },
+    }
+    if aggregate is not None:
+        payload["objective"] = float(aggregate.objective)
+        payload["g2"] = float(aggregate.g2)
+    if result.iteration_state.optimization_terms is not None:
+        payload["constraint_names"] = list(result.iteration_state.optimization_terms.constraint_names)
+
+    print(json.dumps(payload, indent=2))
+
+
+def handle_fjw_optimize(args: argparse.Namespace) -> None:
+    result = run_fjw_optimization(
+        FJWOptimizationConfig(
+            reference_dir=Path(args.reference_dir),
+            abaqus_inputs_path=Path(args.abaqus_inputs),
+            input_inventory_path=Path(args.input_inventory),
+            end1_template_path=Path(args.end1_template),
+            backend=args.backend,
+            mode=args.mode,
+            max_iterations=args.max_iterations,
+            delta_tol=args.delta_tol,
+            num_time_steps=args.num_time_steps,
+            run_directory=Path(args.run_directory),
+            resume=args.resume,
+            checkpoint_every=args.checkpoint_every,
+            abaqus_executable=args.abaqus_executable,
+            cpus=args.cpus,
+            real_run=args.real_run,
+            sfepy_linear_solver=args.sfepy_linear_solver,
+        )
+    )
+    payload = {
+        "backend": result.config.backend,
+        "mode": result.config.mode,
+        "iteration_count": len(result.iterations),
+        "final_delta": result.final_delta,
+        "stopped_reason": result.stopped_reason,
+        "run_directory": str(result.config.run_directory.resolve()),
+        "manifest_path": str(result.manifest_path.resolve()),
+        "final_design_sum": float(result.final_design.sum()),
+    }
+    print(json.dumps(payload, indent=2))
+
+
+def handle_fjw_validate(args: argparse.Namespace) -> None:
+    report = validate_run_directory(
+        Path(args.run_directory),
+        golden_directory=None if args.golden_directory is None else Path(args.golden_directory),
+    )
+    output_path = write_validation_report(
+        report,
+        output_path=None if args.output is None else Path(args.output),
+    )
+    payload = report.as_jsonable()
+    payload["report_path"] = str(output_path.resolve())
+    print(json.dumps(payload, indent=2))
+
+
+def handle_fjw_capture_golden(args: argparse.Namespace) -> None:
+    report = capture_fjw_golden_run(
+        Path(args.run_directory),
+        Path(args.golden_directory),
+        copy_max_bytes=args.copy_max_bytes,
+        copy_files=not args.no_copy_files,
+        require_valid_run=not args.allow_invalid_run,
+    )
+    print(json.dumps(report.as_jsonable(), indent=2))
+
+
+def handle_fjw_preflight(args: argparse.Namespace) -> None:
+    report = check_fjw_runtime_environment(
+        reference_dir=Path(args.reference_dir),
+        golden_directory=None if args.golden_directory is None else Path(args.golden_directory),
+        abaqus_executable=args.abaqus_executable,
+        require_abaqus=args.require_abaqus,
+        require_petsc_mumps=args.require_petsc_mumps,
+        require_golden=args.require_golden,
+    )
+    payload = report.as_jsonable()
+    if args.output is not None:
+        output_path = write_fjw_preflight_report(report, output_path=Path(args.output))
+        payload["report_path"] = str(output_path.resolve())
+    print(json.dumps(payload, indent=2))
+    if not report.is_success:
+        sys.exit(1)
+
+
+def _load_workflow_state_from_args(args: argparse.Namespace):
+    return load_fjw_workflow_state(
+        reference_dir=Path(args.reference_dir),
+        abaqus_inputs_path=Path(args.abaqus_inputs),
+        input_inventory_path=Path(args.input_inventory),
+        end1_template_path=Path(args.end1_template),
+        initial_design_mode=args.initial_design_mode,
+    )
+
+
+def _build_sfepy_workflow_solver_config(linear_solver_kind: str):
+    from fem_analysis.fjw_direct_solver import FJWDirectSolverConfig
+    from fem_analysis.fjw_workflow_sfepy_solver_adapters import FJWSfePyWorkflowSolverConfig
+
+    return FJWSfePyWorkflowSolverConfig(
+        direct_solver_config=FJWDirectSolverConfig(linear_solver_kind=linear_solver_kind),
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    handle_annular_cylinder(args)
+    if args.command == "annular-cylinder":
+        handle_annular_cylinder(args)
+        return
+
+    if args.command == "fjw-workflow":
+        handle_fjw_workflow(args)
+        return
+
+    if args.command == "fjw-direct":
+        handle_fjw_direct(args)
+        return
+
+    if args.command == "fjw-sfepy-iterate":
+        handle_fjw_sfepy_iteration(args)
+        return
+
+    if args.command == "fjw-optimize":
+        handle_fjw_optimize(args)
+        return
+
+    if args.command == "fjw-validate":
+        handle_fjw_validate(args)
+        return
+
+    if args.command == "fjw-capture-golden":
+        handle_fjw_capture_golden(args)
+        return
+
+    if args.command == "fjw-preflight":
+        handle_fjw_preflight(args)
+        return
+
+    raise ValueError(f"Unsupported command: {args.command}")
