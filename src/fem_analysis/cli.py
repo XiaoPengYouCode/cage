@@ -371,6 +371,17 @@ def build_fjw_optimize_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable direct-solver setup caching for debugging.",
     )
+    parser.add_argument(
+        "--disable-heartbeat",
+        action="store_true",
+        help="Disable runtime_status.json and runtime_events.jsonl progress files.",
+    )
+    parser.add_argument(
+        "--heartbeat-interval-seconds",
+        type=float,
+        default=30.0,
+        help="Seconds between heartbeat updates while long solver phases are active.",
+    )
     return parser
 
 
@@ -678,6 +689,8 @@ def handle_fjw_optimize(args: argparse.Namespace) -> None:
             case_parallelism=args.case_parallelism,
             solver_threads=args.solver_threads,
             enable_sfepy_setup_cache=not args.disable_sfepy_setup_cache,
+            enable_heartbeat=not args.disable_heartbeat,
+            heartbeat_interval_seconds=args.heartbeat_interval_seconds,
         )
     )
     payload = {
@@ -688,6 +701,8 @@ def handle_fjw_optimize(args: argparse.Namespace) -> None:
         "case_parallelism": result.config.case_parallelism,
         "solver_threads": result.config.solver_threads,
         "enable_sfepy_setup_cache": result.config.enable_sfepy_setup_cache,
+        "enable_heartbeat": result.config.enable_heartbeat,
+        "heartbeat_interval_seconds": result.config.heartbeat_interval_seconds,
         "iteration_count": len(result.iterations),
         "final_delta": result.final_delta,
         "stopped_reason": result.stopped_reason,

@@ -30,7 +30,7 @@ _PROFILES: dict[str, FJWRuntimeConfig] = {
         sfepy_linear_solver="petsc_mumps",
         case_parallelism=2,
         solver_threads=12,
-        memory_gb=48,
+        memory_gb=62,
     ),
 }
 

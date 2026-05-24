@@ -255,6 +255,7 @@ def run_fjw_workflow_iteration(
             initial_obj_bo_by_case=initial_obj_bo_by_case,
             num_time_steps=request.num_time_steps,
             case_parallelism=request.case_parallelism,
+            timing_recorder=request.timing_recorder,
         )
 
     case_histories = tuple(
@@ -310,11 +311,16 @@ def _run_single_case_batch(
     initial_obj_bo_by_case: Mapping[str, np.ndarray],
     num_time_steps: int | None,
     case_parallelism: int,
+    timing_recorder: FJWTimingRecorder | None,
 ) -> list[FJWSingleCaseResult]:
     parallelism = min(int(case_parallelism), len(load_case_names))
+    heartbeat_writer = None if timing_recorder is None else timing_recorder.heartbeat_writer
 
     def run_case(load_case_name: str) -> FJWSingleCaseResult:
-        case_timing = FJWTimingRecorder(root_name=f"case:{load_case_name}")
+        case_timing = FJWTimingRecorder(
+            root_name=f"case:{load_case_name}",
+            heartbeat_writer=heartbeat_writer,
+        )
         with case_timing.measure("single_case", load_case_name=load_case_name):
             result = run_single_case_workflow(
                 workflow_state=workflow_state,

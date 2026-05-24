@@ -54,6 +54,15 @@ class FJWWorkflowOptimizeTest(unittest.TestCase):
             self.assertFalse(payload["has_placeholder_adjoint"])
             self.assertEqual(payload["optimizer_diagnostics"]["solver"], "mmasub_subsolv")
             self.assertTrue((run_directory / "iter_001" / "timing.json").exists())
+            self.assertTrue((run_directory / "runtime_status.json").exists())
+            self.assertTrue((run_directory / "runtime_events.jsonl").exists())
+            runtime_status = json.loads((run_directory / "runtime_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(runtime_status["run_state"], "completed")
+            self.assertIn("process", runtime_status)
+            runtime_events = (run_directory / "runtime_events.jsonl").read_text(encoding="utf-8").splitlines()
+            event_types = [json.loads(line)["event_type"] for line in runtime_events]
+            self.assertIn("phase_start", event_types)
+            self.assertIn("phase_end", event_types)
 
     def test_abaqus_optimizer_rejects_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -66,6 +75,28 @@ class FJWWorkflowOptimizeTest(unittest.TestCase):
                         runtime_profile="local",
                     )
                 )
+
+    def test_optimizer_can_disable_heartbeat(self) -> None:
+        workflow_state = build_minimal_sfepy_iteration_state()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_directory = Path(temp_dir) / "fjw_optimize"
+            with mock.patch(
+                "fem_analysis.fjw_workflow_optimize.load_fjw_workflow_state",
+                return_value=workflow_state,
+            ):
+                run_fjw_optimization(
+                    FJWOptimizationConfig(
+                        run_directory=run_directory,
+                        max_iterations=1,
+                        num_time_steps=1,
+                        runtime_profile="local",
+                        enable_heartbeat=False,
+                    )
+                )
+
+            self.assertFalse((run_directory / "runtime_status.json").exists())
+            self.assertFalse((run_directory / "runtime_events.jsonl").exists())
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ from .fjw_workflow_optimizer import build_initial_mma_state
 from .fjw_workflow_runner import run_fjw_abaqus_workflow_iteration, run_fjw_sfepy_workflow_iteration
 from .fjw_workflow_solver_adapters import FJWAbaqusWorkflowSolverConfig
 from .fjw_workflow_sfepy_solver_adapters import FJWSfePyWorkflowSolverConfig
-from .fjw_workflow_timing import FJWTimingRecorder
+from .fjw_workflow_timing import FJWHeartbeatWriter, FJWTimingRecorder
 from .fjw_direct_solver import FJWDirectSolverConfig
 
 
@@ -55,6 +55,8 @@ class FJWOptimizationConfig:
     case_parallelism: int | None = None
     solver_threads: int | None = None
     enable_sfepy_setup_cache: bool = True
+    enable_heartbeat: bool = True
+    heartbeat_interval_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         if self.backend not in ("abaqus", "sfepy"):
@@ -69,6 +71,8 @@ class FJWOptimizationConfig:
             raise ValueError("num_time_steps must be positive.")
         if self.checkpoint_every <= 0:
             raise ValueError("checkpoint_every must be positive.")
+        if self.heartbeat_interval_seconds <= 0.0:
+            raise ValueError("heartbeat_interval_seconds must be positive.")
 
         runtime_config = get_fjw_runtime_config(self.runtime_profile)
         sfepy_linear_solver = self.sfepy_linear_solver or runtime_config.sfepy_linear_solver
@@ -108,106 +112,150 @@ def run_fjw_optimization(config: FJWOptimizationConfig) -> FJWOptimizationRunRes
 
     config.run_directory.mkdir(parents=True, exist_ok=True)
     numeric_thread_env = configure_numeric_runtime_threads(config.solver_threads or 1)
-    workflow_state = load_fjw_workflow_state(
-        reference_dir=config.reference_dir,
-        abaqus_inputs_path=config.abaqus_inputs_path,
-        input_inventory_path=config.input_inventory_path,
-        end1_template_path=config.end1_template_path,
-        initial_design_mode="three_load",
-    )
-
-    if config.resume:
-        resume_state = load_resume_state(config.run_directory)
-        design = resume_state.design.copy()
-        mma_state = resume_state.mma_state
-        start_iteration = resume_state.iteration_index
-    else:
-        design = workflow_state.initial_state.design_cage.copy()
-        mma_state = build_initial_mma_state(design)
-        start_iteration = 0
-        write_initial_checkpoint(
-            run_directory=config.run_directory,
-            workflow_state=workflow_state,
-            design=design,
-            mma_state=mma_state,
+    heartbeat_writer = None
+    if config.enable_heartbeat:
+        heartbeat_writer = FJWHeartbeatWriter(
+            status_path=config.run_directory / "runtime_status.json",
+            events_path=config.run_directory / "runtime_events.jsonl",
+            interval_seconds=config.heartbeat_interval_seconds,
+            run_metadata={
+                "backend": config.backend,
+                "mode": config.mode,
+                "runtime_profile": config.runtime_profile,
+                "sfepy_linear_solver": config.sfepy_linear_solver,
+                "case_parallelism": config.case_parallelism,
+                "solver_threads": config.solver_threads,
+                "run_directory": str(config.run_directory),
+            },
         )
-
-    manifest_path = write_workflow_manifest(
-        run_directory=config.run_directory,
-        payload={
-            "backend": config.backend,
-            "mode": config.mode,
-            "max_iterations": config.max_iterations,
-            "delta_tol": config.delta_tol,
-            "num_time_steps": config.num_time_steps,
-            "runtime_profile": config.runtime_profile,
-            "sfepy_linear_solver": config.sfepy_linear_solver,
-            "case_parallelism": config.case_parallelism,
-            "solver_threads": config.solver_threads,
-            "numeric_thread_environment": numeric_thread_env,
-            "enable_sfepy_setup_cache": config.enable_sfepy_setup_cache,
-            "resume": config.resume,
-            "start_iteration": start_iteration,
-            "run_directory": str(config.run_directory),
-            "reference_dir": str(config.reference_dir),
-            "runtime_artifact_policy": "Large Abaqus/SfePy runtime artifacts stay under runs/ and are not committed by default.",
-        },
-    )
-
-    iterations: list[FJWWorkflowDriverResult] = []
-    final_delta = float("inf")
-    stopped_reason = "max_iterations"
-    current_design = design
-    current_mma_state = mma_state
-
-    for _ in range(config.max_iterations):
-        timing_recorder = FJWTimingRecorder(root_name=f"iteration:{current_mma_state.iteration + 1:03d}")
-        driver_request = FJWWorkflowDriverRequest(
-            workflow_state=workflow_state,
+        heartbeat_writer.mark_run_state("loading_workflow")
+    try:
+        workflow_state = load_fjw_workflow_state(
+            reference_dir=config.reference_dir,
+            abaqus_inputs_path=config.abaqus_inputs_path,
+            input_inventory_path=config.input_inventory_path,
+            end1_template_path=config.end1_template_path,
             initial_design_mode="three_load",
-            design=current_design,
-            mma_state=current_mma_state,
-            num_time_steps=config.num_time_steps,
-            case_parallelism=config.case_parallelism or 1,
-            timing_recorder=timing_recorder,
         )
-        with timing_recorder.measure("outer_iteration", iteration_index=current_mma_state.iteration + 1):
-            result = _run_one_iteration(config, driver_request)
-        result.metadata["timing"] = timing_recorder.as_jsonable()
-        iterations.append(result)
-
-        next_design = result.iteration_state.next_design
-        if next_design is None:
-            raise RuntimeError("FJW optimizer did not return next_design.")
-        final_delta = _iteration_delta(result)
-        if result.iteration_state.iteration_index % config.checkpoint_every == 0:
-            with timing_recorder.measure("checkpoint_write", iteration_index=result.iteration_state.iteration_index):
-                write_iteration_checkpoint(
-                    run_directory=config.run_directory,
-                    result=result,
-                    delta=final_delta,
-                )
-            result.metadata["timing"] = timing_recorder.as_jsonable()
-            write_iteration_timing_report(
+        if config.resume:
+            resume_state = load_resume_state(config.run_directory)
+            design = resume_state.design.copy()
+            mma_state = resume_state.mma_state
+            start_iteration = resume_state.iteration_index
+        else:
+            design = workflow_state.initial_state.design_cage.copy()
+            mma_state = build_initial_mma_state(design)
+            start_iteration = 0
+            write_initial_checkpoint(
                 run_directory=config.run_directory,
-                iteration_index=result.iteration_state.iteration_index,
-                timing=result.metadata["timing"],
+                workflow_state=workflow_state,
+                design=design,
+                mma_state=mma_state,
             )
 
-        current_design = next_design.copy()
-        current_mma_state = result.iteration_state.mma_state
-        if final_delta <= config.delta_tol:
-            stopped_reason = "delta_tol"
-            break
+        manifest_path = write_workflow_manifest(
+            run_directory=config.run_directory,
+            payload={
+                "backend": config.backend,
+                "mode": config.mode,
+                "max_iterations": config.max_iterations,
+                "delta_tol": config.delta_tol,
+                "num_time_steps": config.num_time_steps,
+                "runtime_profile": config.runtime_profile,
+                "sfepy_linear_solver": config.sfepy_linear_solver,
+                "case_parallelism": config.case_parallelism,
+                "solver_threads": config.solver_threads,
+                "numeric_thread_environment": numeric_thread_env,
+                "enable_sfepy_setup_cache": config.enable_sfepy_setup_cache,
+                "enable_heartbeat": config.enable_heartbeat,
+                "heartbeat_interval_seconds": config.heartbeat_interval_seconds,
+                "resume": config.resume,
+                "start_iteration": start_iteration,
+                "run_directory": str(config.run_directory),
+                "reference_dir": str(config.reference_dir),
+                "runtime_artifact_policy": "Large Abaqus/SfePy runtime artifacts stay under runs/ and are not committed by default.",
+            },
+        )
 
-    return FJWOptimizationRunResult(
-        config=config,
-        iterations=tuple(iterations),
-        final_design=current_design,
-        final_delta=float(final_delta),
-        stopped_reason=stopped_reason,
-        manifest_path=manifest_path,
-    )
+        iterations: list[FJWWorkflowDriverResult] = []
+        final_delta = float("inf")
+        stopped_reason = "max_iterations"
+        current_design = design
+        current_mma_state = mma_state
+        if heartbeat_writer is not None:
+            heartbeat_writer.mark_run_state(
+                "optimizing",
+                start_iteration=start_iteration,
+                max_iterations=config.max_iterations,
+            )
+
+        for _ in range(config.max_iterations):
+            iteration_index = current_mma_state.iteration + 1
+            if heartbeat_writer is not None:
+                heartbeat_writer.mark_run_state("iteration", iteration_index=iteration_index)
+            timing_recorder = FJWTimingRecorder(
+                root_name=f"iteration:{iteration_index:03d}",
+                heartbeat_writer=heartbeat_writer,
+            )
+            driver_request = FJWWorkflowDriverRequest(
+                workflow_state=workflow_state,
+                initial_design_mode="three_load",
+                design=current_design,
+                mma_state=current_mma_state,
+                num_time_steps=config.num_time_steps,
+                case_parallelism=config.case_parallelism or 1,
+                timing_recorder=timing_recorder,
+            )
+            with timing_recorder.measure("outer_iteration", iteration_index=iteration_index):
+                result = _run_one_iteration(config, driver_request)
+            result.metadata["timing"] = timing_recorder.as_jsonable()
+            iterations.append(result)
+
+            next_design = result.iteration_state.next_design
+            if next_design is None:
+                raise RuntimeError("FJW optimizer did not return next_design.")
+            final_delta = _iteration_delta(result)
+            if result.iteration_state.iteration_index % config.checkpoint_every == 0:
+                with timing_recorder.measure("checkpoint_write", iteration_index=result.iteration_state.iteration_index):
+                    write_iteration_checkpoint(
+                        run_directory=config.run_directory,
+                        result=result,
+                        delta=final_delta,
+                    )
+                result.metadata["timing"] = timing_recorder.as_jsonable()
+                write_iteration_timing_report(
+                    run_directory=config.run_directory,
+                    iteration_index=result.iteration_state.iteration_index,
+                    timing=result.metadata["timing"],
+                )
+
+            current_design = next_design.copy()
+            current_mma_state = result.iteration_state.mma_state
+            if final_delta <= config.delta_tol:
+                stopped_reason = "delta_tol"
+                break
+
+        if heartbeat_writer is not None:
+            heartbeat_writer.mark_run_state(
+                "completed",
+                final_delta=float(final_delta),
+                stopped_reason=stopped_reason,
+            )
+        return FJWOptimizationRunResult(
+            config=config,
+            iterations=tuple(iterations),
+            final_design=current_design,
+            final_delta=float(final_delta),
+            stopped_reason=stopped_reason,
+            manifest_path=manifest_path,
+        )
+    except BaseException as exc:
+        if heartbeat_writer is not None:
+            heartbeat_writer.mark_run_state("failed", error=f"{type(exc).__name__}: {exc}"[:500])
+        raise
+    finally:
+        if heartbeat_writer is not None:
+            heartbeat_writer.close()
 
 
 def _run_one_iteration(
