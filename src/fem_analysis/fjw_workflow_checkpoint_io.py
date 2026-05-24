@@ -189,9 +189,23 @@ def write_iteration_checkpoint(
             "objective": None if iteration_state.aggregate_terms is None else float(iteration_state.aggregate_terms.objective),
             "g2": None if iteration_state.aggregate_terms is None else float(iteration_state.aggregate_terms.g2),
             "cases": case_payloads,
+            "timing_path": str(checkpoint_dir / "timing.json") if result.metadata.get("timing") is not None else None,
         },
     )
+    if result.metadata.get("timing") is not None:
+        _write_json(checkpoint_dir / "timing.json", {"timing": result.metadata["timing"]})
     return checkpoint_dir
+
+
+def write_iteration_timing_report(
+    *,
+    run_directory: Path,
+    iteration_index: int,
+    timing: dict[str, object],
+) -> Path:
+    path = Path(run_directory) / f"iter_{int(iteration_index):03d}" / "timing.json"
+    _write_json(path, {"timing": timing})
+    return path
 
 
 def _write_mma_state(path: Path, mma_state: FJWMMAState) -> None:
@@ -305,5 +319,6 @@ __all__ = [
     "load_resume_state",
     "write_initial_checkpoint",
     "write_iteration_checkpoint",
+    "write_iteration_timing_report",
     "write_workflow_manifest",
 ]

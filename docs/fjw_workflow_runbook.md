@@ -39,13 +39,46 @@ uv run fem-analysis fjw-optimize \
   --mode three-force \
   --max-iterations 1 \
   --num-time-steps 1 \
-  --sfepy-linear-solver scipy_iterative \
+  --runtime-profile local \
   --run-directory runs/fjw_optimize
 ```
 
-Use this for Python workflow validation. `scipy_iterative` uses only the
-repository's Python dependency stack. `scipy_direct` is useful for small
-debugging models; `petsc_mumps` is an optional large-model acceleration profile.
+Use this for Python workflow validation. `local` keeps the Python-only
+`scipy_iterative` solver and runs force cases sequentially.
+
+For the remote production machine, use the default `wuyinyun` profile:
+
+```bash
+uv run fem-analysis fjw-preflight --require-petsc-mumps
+uv run fem-analysis fjw-optimize \
+  --backend sfepy \
+  --mode three-force \
+  --resume \
+  --runtime-profile wuyinyun \
+  --run-directory runs/fjw_optimize
+```
+
+The `wuyinyun` profile selects `petsc_mumps`, `case_parallelism=2`, and
+`solver_threads=12` for a 48 GB host. Override individual knobs only when a run
+shows memory pressure or PETSc/MUMPS is unavailable:
+
+```bash
+uv run fem-analysis fjw-optimize \
+  --backend sfepy \
+  --runtime-profile wuyinyun \
+  --case-parallelism 1 \
+  --sfepy-linear-solver scipy_iterative
+```
+
+Each completed iteration writes `iter_###/timing.json`. The timing tree records
+the outer iteration, force-case batch, each forward solve, each adjoint solve,
+the aggregate step, and checkpoint write time.
+
+SfePy setup caching is enabled by default. Disable it only for debugging:
+
+```bash
+uv run fem-analysis fjw-optimize --disable-sfepy-setup-cache
+```
 
 ## Optional Abaqus Comparison
 
@@ -68,6 +101,7 @@ Each run writes:
 - `workflow_manifest.json`
 - `iter_000/design_cage.npz`
 - `iter_###/iteration_state.json`
+- `iter_###/timing.json`
 - `iter_###/design_cage.npz`
 - `iter_###/mma_state.npz`
 - `iter_###/aggregate_terms.npz`

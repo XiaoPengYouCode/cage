@@ -163,6 +163,7 @@ class FJWSfePyWorkflowRunnerTest(unittest.TestCase):
 
         self.assertEqual(result.load_case_names, FORCE_CASE_ORDER)
         self.assertEqual(len(result.single_case_results), 3)
+        self.assertEqual(result.metadata["case_parallelism"], 1)
         self.assertEqual(result.iteration_state.iteration_index, 1)
         self.assertFalse(result.iteration_state.has_placeholder_adjoint)
         self.assertIsNotNone(result.iteration_state.aggregate_terms)
@@ -181,6 +182,24 @@ class FJWSfePyWorkflowRunnerTest(unittest.TestCase):
         self.assertEqual(set(terminal_bo_sum_by_case), set(FORCE_CASE_ORDER))
         self.assertTrue(all(np.isfinite(value) for value in terminal_bo_sum_by_case.values()))
         self.assertTrue(np.isfinite(result.iteration_state.aggregate_terms.objective))
+
+    def test_run_fjw_sfepy_workflow_iteration_preserves_case_order_with_parallelism(self) -> None:
+        workflow_state = build_minimal_sfepy_iteration_state()
+
+        result = run_fjw_sfepy_workflow_iteration(
+            driver_request=FJWWorkflowDriverRequest(
+                workflow_state=workflow_state,
+                num_time_steps=1,
+                case_parallelism=2,
+            )
+        )
+
+        self.assertEqual(result.load_case_names, FORCE_CASE_ORDER)
+        self.assertEqual(
+            [case_result.load_case_name for case_result in result.single_case_results],
+            list(FORCE_CASE_ORDER),
+        )
+        self.assertEqual(result.metadata["case_parallelism"], 2)
 
 
 if __name__ == "__main__":

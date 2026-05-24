@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -24,6 +25,7 @@ from .fjw_workflow_single_case import (
     FJWSingleCaseResult,
     run_single_case_workflow,
 )
+from .fjw_workflow_timing import FJWTimingRecorder, maybe_measure
 from .fjw_workflow_three_force import FORCE_CASE_ORDER, FJWAdjointStepFields
 
 
@@ -43,6 +45,8 @@ class FJWWorkflowDriverRequest:
     optimizer: FJWOptimizer | None = None
     mma_state: FJWMMAState | None = None
     previous_iteration_state: FJWWorkflowIterationState | None = None
+    case_parallelism: int = 1
+    timing_recorder: FJWTimingRecorder | None = None
 
     def __post_init__(self) -> None:
         if self.initial_obj_bo is not None and self.initial_obj_bo_by_case is not None:
@@ -51,6 +55,8 @@ class FJWWorkflowDriverRequest:
         load_case_names = tuple(str(name) for name in self.load_case_names)
         if len(load_case_names) != len(set(load_case_names)):
             raise ValueError("load_case_names must be unique.")
+        if self.case_parallelism <= 0:
+            raise ValueError("case_parallelism must be positive.")
 
         object.__setattr__(self, "reference_dir", Path(self.reference_dir))
         object.__setattr__(self, "abaqus_inputs_path", Path(self.abaqus_inputs_path))
@@ -235,18 +241,20 @@ def run_fjw_workflow_iteration(
         load_case_names=load_case_names,
     )
 
-    single_case_results: list[FJWSingleCaseResult] = []
-    for load_case_name in load_case_names:
-        single_case_results.append(
-            run_single_case_workflow(
-                workflow_state=workflow_state,
-                load_case_name=load_case_name,
-                forward_solver=forward_solver,
-                adjoint_solver=adjoint_solver,
-                design_cage=design,
-                initial_obj_bo=initial_obj_bo_by_case[load_case_name],
-                num_time_steps=request.num_time_steps,
-            )
+    with maybe_measure(
+        request.timing_recorder,
+        "case_batch",
+        case_parallelism=min(int(request.case_parallelism), len(load_case_names)),
+    ):
+        single_case_results = _run_single_case_batch(
+            workflow_state=workflow_state,
+            load_case_names=load_case_names,
+            forward_solver=forward_solver,
+            adjoint_solver=adjoint_solver,
+            design=design,
+            initial_obj_bo_by_case=initial_obj_bo_by_case,
+            num_time_steps=request.num_time_steps,
+            case_parallelism=request.case_parallelism,
         )
 
     case_histories = tuple(
@@ -263,13 +271,8 @@ def run_fjw_workflow_iteration(
         for case_result in single_case_results
     }
 
-    result = FJWWorkflowDriverResult(
-        workflow_state=workflow_state,
-        load_case_names=load_case_names,
-        design=design,
-        initial_obj_bo_by_case=initial_obj_bo_by_case,
-        single_case_results=tuple(single_case_results),
-        iteration_state=run_iteration_from_histories(
+    with maybe_measure(request.timing_recorder, "iteration_aggregate"):
+        iteration_state = run_iteration_from_histories(
             case_histories=case_histories,
             workflow_state=workflow_state,
             design=design,
@@ -277,14 +280,67 @@ def run_fjw_workflow_iteration(
             optimizer=request.optimizer,
             adjoint_steps_by_case=adjoint_steps_by_case,
             previous_iteration_state=request.previous_iteration_state,
-        ),
+        )
+
+    result = FJWWorkflowDriverResult(
+        workflow_state=workflow_state,
+        load_case_names=load_case_names,
+        design=design,
+        initial_obj_bo_by_case=initial_obj_bo_by_case,
+        single_case_results=tuple(single_case_results),
+        iteration_state=iteration_state,
         metadata={
             "workflow_state_source": "provided" if request.workflow_state is not None else "loaded",
             "initial_design_mode": request.initial_design_mode,
             "num_time_steps": request.num_time_steps or workflow_state.material_constants.num_time_steps,
+            "case_parallelism": int(request.case_parallelism),
+            "timing": None if request.timing_recorder is None else request.timing_recorder.as_jsonable(),
         },
     )
     return result
+
+
+def _run_single_case_batch(
+    *,
+    workflow_state: FJWWorkflowState,
+    load_case_names: Sequence[str],
+    forward_solver: FJWForwardSolver,
+    adjoint_solver: FJWAdjointSolver,
+    design: np.ndarray,
+    initial_obj_bo_by_case: Mapping[str, np.ndarray],
+    num_time_steps: int | None,
+    case_parallelism: int,
+) -> list[FJWSingleCaseResult]:
+    parallelism = min(int(case_parallelism), len(load_case_names))
+
+    def run_case(load_case_name: str) -> FJWSingleCaseResult:
+        case_timing = FJWTimingRecorder(root_name=f"case:{load_case_name}")
+        with case_timing.measure("single_case", load_case_name=load_case_name):
+            result = run_single_case_workflow(
+                workflow_state=workflow_state,
+                load_case_name=load_case_name,
+                forward_solver=forward_solver,
+                adjoint_solver=adjoint_solver,
+                design_cage=design,
+                initial_obj_bo=initial_obj_bo_by_case[load_case_name],
+                num_time_steps=num_time_steps,
+                timing_recorder=case_timing,
+            )
+        result.metadata["timing"] = case_timing.as_jsonable()
+        return result
+
+    if parallelism <= 1:
+        return [run_case(load_case_name) for load_case_name in load_case_names]
+
+    by_name: dict[str, FJWSingleCaseResult] = {}
+    with ThreadPoolExecutor(max_workers=parallelism, thread_name_prefix="fjw-case") as executor:
+        futures = {
+            executor.submit(run_case, load_case_name): load_case_name
+            for load_case_name in load_case_names
+        }
+        for future, load_case_name in futures.items():
+            by_name[load_case_name] = future.result()
+    return [by_name[load_case_name] for load_case_name in load_case_names]
 
 
 __all__ = [

@@ -193,6 +193,7 @@ class FJWValidationTest(unittest.TestCase):
                         run_directory=run_dir,
                         max_iterations=1,
                         num_time_steps=1,
+                        runtime_profile="local",
                     )
                 )
 

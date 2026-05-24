@@ -42,6 +42,12 @@ from fem_analysis.fjw_environment import (
     find_fjw_runtime_golden_outputs,
     write_fjw_preflight_report,
 )
+from fem_analysis.fjw_runtime_config import (
+    FJWRuntimeConfig,
+    configure_numeric_runtime_threads,
+    fjw_runtime_profile_names,
+    get_fjw_runtime_config,
+)
 from fem_analysis.fjw_solver_config import (
     FJWSfePyLinearSolverProfile,
     petsc_mumps_options,
@@ -232,6 +238,7 @@ __all__ = [
     "FJWPreflightCheck",
     "FJWPreflightReport",
     "FJWReferenceMeshContext",
+    "FJWRuntimeConfig",
     "FJWSingleLoadCaseHistory",
     "FJWSingleLoadTimeStepResult",
     "FJWThreeForceAggregate",
@@ -303,7 +310,9 @@ __all__ = [
     "execute_workflow_jobs",
     "execute_job_and_collect",
     "find_fjw_runtime_golden_outputs",
+    "fjw_runtime_profile_names",
     "generate_workflow_input_files",
+    "get_fjw_runtime_config",
     "load_abaqus_u1_dense_matrix",
     "load_abaqus_u1_result",
     "load_design_element_displacements_from_u1",
@@ -335,6 +344,7 @@ __all__ = [
     "solve_fjw_direct_case",
     "write_abaqus_odb_export_script",
     "write_fjw_preflight_report",
+    "configure_numeric_runtime_threads",
     "write_iteration_checkpoint",
     "mmasub",
     "rigid_kinematic_coupling_matrix",

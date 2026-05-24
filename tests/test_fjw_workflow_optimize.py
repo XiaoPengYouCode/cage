@@ -27,6 +27,7 @@ class FJWWorkflowOptimizeTest(unittest.TestCase):
                         run_directory=run_directory,
                         max_iterations=1,
                         num_time_steps=1,
+                        runtime_profile="local",
                     )
                 )
                 resumed = run_fjw_optimization(
@@ -35,6 +36,7 @@ class FJWWorkflowOptimizeTest(unittest.TestCase):
                         max_iterations=1,
                         num_time_steps=1,
                         resume=True,
+                        runtime_profile="local",
                     )
                 )
 
@@ -51,6 +53,7 @@ class FJWWorkflowOptimizeTest(unittest.TestCase):
             payload = json.loads((run_directory / "iter_001" / "iteration_state.json").read_text(encoding="utf-8"))
             self.assertFalse(payload["has_placeholder_adjoint"])
             self.assertEqual(payload["optimizer_diagnostics"]["solver"], "mmasub_subsolv")
+            self.assertTrue((run_directory / "iter_001" / "timing.json").exists())
 
     def test_abaqus_optimizer_rejects_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -60,6 +63,7 @@ class FJWWorkflowOptimizeTest(unittest.TestCase):
                         backend="abaqus",
                         real_run=False,
                         run_directory=Path(temp_dir),
+                        runtime_profile="local",
                     )
                 )
 

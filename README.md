@@ -138,10 +138,12 @@ uv run fem-analysis fjw-optimize \
   --mode three-force \
   --max-iterations 1 \
   --num-time-steps 1 \
-  --sfepy-linear-solver scipy_iterative \
+  --runtime-profile local \
   --run-directory runs/fjw_optimize
 uv run fem-analysis fjw-validate --run-directory runs/fjw_optimize
 ```
+
+正式远端优化默认按 `wuyinyun` profile 执行：`petsc_mumps`、`case_parallelism=2`、`solver_threads=12`。每个完成 checkpoint 会额外写入 `iter_###/timing.json`，用于查看 force case、forward、adjoint 和 checkpoint 写入耗时。
 
 ### C. Annular-cylinder density sampling demo
 

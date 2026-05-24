@@ -491,14 +491,15 @@ def solve_fjw_direct_case(
     design_cage: np.ndarray | None = None,
     obj_bo: np.ndarray | None = None,
     config: FJWDirectSolverConfig | None = None,
+    setup: FJWDirectProblemSetup | None = None,
 ) -> FJWDirectSolveResult:
-    setup = build_fjw_direct_problem_setup(
+    resolved_setup = setup or build_fjw_direct_problem_setup(
         workflow_state,
         load_case_name=load_case_name,
         design_cage=design_cage,
         obj_bo=obj_bo,
     )
-    problem = build_fjw_direct_problem(setup, config=config)
+    problem = build_fjw_direct_problem(resolved_setup, config=config)
     with quiet_sfepy_output():
         state = problem.solve(save_results=False, verbose=False)
 
@@ -508,11 +509,11 @@ def solve_fjw_direct_case(
     top_control_index = int(np.argmax(np.linalg.norm(rigid_control, axis=1)))
     rp_top = rigid_control[top_control_index]
     return FJWDirectSolveResult(
-        setup=setup,
+        setup=resolved_setup,
         nodal_displacements=nodal_displacements if (config or FJWDirectSolverConfig()).store_nodal_displacements else None,
         rigid_control=rigid_control if (config or FJWDirectSolverConfig()).store_rigid_control else None,
         max_displacement_mm=float(np.max(np.linalg.norm(nodal_displacements, axis=1))),
-        top_rp_displacement=nodal_displacements[setup.top_rp_vertex_id].copy(),
+        top_rp_displacement=nodal_displacements[resolved_setup.top_rp_vertex_id].copy(),
         top_rp_rotation=rp_top[3:].copy(),
     )
 
@@ -525,15 +526,16 @@ def solve_fjw_direct_adjoint_case(
     design_cage: np.ndarray | None = None,
     obj_bo: np.ndarray | None = None,
     config: FJWDirectSolverConfig | None = None,
+    setup: FJWDirectProblemSetup | None = None,
 ) -> FJWDirectSolveResult:
-    setup = build_fjw_direct_problem_setup(
+    resolved_setup = setup or build_fjw_direct_problem_setup(
         workflow_state,
         load_case_name=load_case_name,
         design_cage=design_cage,
         obj_bo=obj_bo,
     )
     problem = build_fjw_direct_problem(
-        setup,
+        resolved_setup,
         config=config,
         nodal_point_loads=nodal_forces_flat,
         rigid_point_load=np.zeros((1, 6), dtype=np.float64),
@@ -547,11 +549,11 @@ def solve_fjw_direct_adjoint_case(
     top_control_index = int(np.argmax(np.linalg.norm(rigid_control, axis=1)))
     rp_top = rigid_control[top_control_index]
     return FJWDirectSolveResult(
-        setup=setup,
+        setup=resolved_setup,
         nodal_displacements=nodal_displacements if (config or FJWDirectSolverConfig()).store_nodal_displacements else None,
         rigid_control=rigid_control if (config or FJWDirectSolverConfig()).store_rigid_control else None,
         max_displacement_mm=float(np.max(np.linalg.norm(nodal_displacements, axis=1))),
-        top_rp_displacement=nodal_displacements[setup.top_rp_vertex_id].copy(),
+        top_rp_displacement=nodal_displacements[resolved_setup.top_rp_vertex_id].copy(),
         top_rp_rotation=rp_top[3:].copy(),
     )
 

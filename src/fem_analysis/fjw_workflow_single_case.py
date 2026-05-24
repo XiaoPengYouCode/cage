@@ -15,6 +15,7 @@ from .fjw_workflow_adjoint import (
 )
 from .fjw_workflow_forward import FJWSingleLoadTimeStepResult, build_single_load_time_step_result
 from .fjw_workflow_models import FJWLoadCase, FJWWorkflowState
+from .fjw_workflow_timing import FJWTimingRecorder, maybe_measure
 from .fjw_workflow_three_force import FJWAdjointStepFields, FJWThreeForceCaseResult
 
 
@@ -117,6 +118,7 @@ class FJWSingleCaseResult:
     initial_compliance: float
     initial_design_sensitivity: np.ndarray
     bone_reference_compliance: float
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         design_cage = np.asarray(self.design_cage, dtype=np.float64).reshape(-1)
@@ -191,6 +193,7 @@ def run_single_case_workflow(
     design_cage: np.ndarray | Sequence[float] | None = None,
     initial_obj_bo: np.ndarray | Sequence[float] | None = None,
     num_time_steps: int | None = None,
+    timing_recorder: FJWTimingRecorder | None = None,
 ) -> FJWSingleCaseResult:
     load_case = _coerce_load_case(workflow_state, load_case_name)
     material_constants = workflow_state.material_constants
@@ -220,16 +223,18 @@ def run_single_case_workflow(
             design_cage=design_density,
             obj_bo=current_obj_bo,
         )
-        forward_solve_result = forward_solver.solve_forward(forward_request)
-        step_result = build_single_load_time_step_result(
-            load_case_name=load_case_name,
-            time_index=time_index,
-            element_displacements=forward_solve_result.element_displacements,
-            mesh=mesh,
-            material_constants=material_constants,
-            design_cage=design_density,
-            obj_bo=current_obj_bo,
-        )
+        with maybe_measure(timing_recorder, "forward_solve", load_case_name=load_case_name, time_index=time_index):
+            forward_solve_result = forward_solver.solve_forward(forward_request)
+        with maybe_measure(timing_recorder, "forward_update", load_case_name=load_case_name, time_index=time_index):
+            step_result = build_single_load_time_step_result(
+                load_case_name=load_case_name,
+                time_index=time_index,
+                element_displacements=forward_solve_result.element_displacements,
+                mesh=mesh,
+                material_constants=material_constants,
+                design_cage=design_density,
+                obj_bo=current_obj_bo,
+            )
         forward_steps.append(step_result)
         current_obj_bo = step_result.obj_bo_next.copy()
         obj_bo_history[time_index + 1] = current_obj_bo
@@ -255,14 +260,16 @@ def run_single_case_workflow(
             obj_bo=forward_step.obj_bo_previous,
             load_vector=adjoint_load_vector,
         )
-        adjoint_solve_result = adjoint_solver.solve_adjoint(adjoint_request)
-        adjoint_state = build_adjoint_step_state(
-            forward_step=forward_step,
-            adjoint_element_displacements=adjoint_solve_result.element_displacements,
-            fai_next=fai_history[time_index + 1],
-            mesh=mesh,
-            material_constants=material_constants,
-        )
+        with maybe_measure(timing_recorder, "adjoint_solve", load_case_name=load_case_name, time_index=time_index):
+            adjoint_solve_result = adjoint_solver.solve_adjoint(adjoint_request)
+        with maybe_measure(timing_recorder, "adjoint_update", load_case_name=load_case_name, time_index=time_index):
+            adjoint_state = build_adjoint_step_state(
+                forward_step=forward_step,
+                adjoint_element_displacements=adjoint_solve_result.element_displacements,
+                fai_next=fai_history[time_index + 1],
+                mesh=mesh,
+                material_constants=material_constants,
+            )
         fai_history[time_index] = adjoint_state.fai_current
         adjoint_steps.append(
             FJWSingleCaseAdjointStep(
@@ -285,6 +292,9 @@ def run_single_case_workflow(
         initial_compliance=forward_steps[0].compliance,
         initial_design_sensitivity=forward_steps[0].design_sensitivity,
         bone_reference_compliance=forward_steps[0].bone_reference_compliance,
+        metadata={
+            "timing": None if timing_recorder is None else timing_recorder.as_jsonable(),
+        },
     )
 
 

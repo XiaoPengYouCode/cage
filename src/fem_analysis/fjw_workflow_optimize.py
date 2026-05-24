@@ -6,10 +6,12 @@ from typing import Literal
 
 import numpy as np
 
+from .fjw_runtime_config import configure_numeric_runtime_threads, get_fjw_runtime_config
 from .fjw_workflow_checkpoint_io import (
     load_resume_state,
     write_initial_checkpoint,
     write_iteration_checkpoint,
+    write_iteration_timing_report,
     write_workflow_manifest,
 )
 from .fjw_workflow_driver import FJWWorkflowDriverRequest, FJWWorkflowDriverResult
@@ -23,6 +25,7 @@ from .fjw_workflow_optimizer import build_initial_mma_state
 from .fjw_workflow_runner import run_fjw_abaqus_workflow_iteration, run_fjw_sfepy_workflow_iteration
 from .fjw_workflow_solver_adapters import FJWAbaqusWorkflowSolverConfig
 from .fjw_workflow_sfepy_solver_adapters import FJWSfePyWorkflowSolverConfig
+from .fjw_workflow_timing import FJWTimingRecorder
 from .fjw_direct_solver import FJWDirectSolverConfig
 
 
@@ -47,7 +50,11 @@ class FJWOptimizationConfig:
     abaqus_executable: str = "abaqus"
     cpus: int = 8
     real_run: bool = False
-    sfepy_linear_solver: str = "scipy_iterative"
+    sfepy_linear_solver: str | None = None
+    runtime_profile: str = "wuyinyun"
+    case_parallelism: int | None = None
+    solver_threads: int | None = None
+    enable_sfepy_setup_cache: bool = True
 
     def __post_init__(self) -> None:
         if self.backend not in ("abaqus", "sfepy"):
@@ -63,11 +70,23 @@ class FJWOptimizationConfig:
         if self.checkpoint_every <= 0:
             raise ValueError("checkpoint_every must be positive.")
 
+        runtime_config = get_fjw_runtime_config(self.runtime_profile)
+        sfepy_linear_solver = self.sfepy_linear_solver or runtime_config.sfepy_linear_solver
+        case_parallelism = runtime_config.case_parallelism if self.case_parallelism is None else int(self.case_parallelism)
+        solver_threads = runtime_config.solver_threads if self.solver_threads is None else int(self.solver_threads)
+        if case_parallelism <= 0:
+            raise ValueError("case_parallelism must be positive.")
+        if solver_threads <= 0:
+            raise ValueError("solver_threads must be positive.")
+
         object.__setattr__(self, "reference_dir", Path(self.reference_dir))
         object.__setattr__(self, "abaqus_inputs_path", Path(self.abaqus_inputs_path))
         object.__setattr__(self, "input_inventory_path", Path(self.input_inventory_path))
         object.__setattr__(self, "end1_template_path", Path(self.end1_template_path))
         object.__setattr__(self, "run_directory", Path(self.run_directory))
+        object.__setattr__(self, "sfepy_linear_solver", sfepy_linear_solver)
+        object.__setattr__(self, "case_parallelism", case_parallelism)
+        object.__setattr__(self, "solver_threads", solver_threads)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +107,7 @@ def run_fjw_optimization(config: FJWOptimizationConfig) -> FJWOptimizationRunRes
         )
 
     config.run_directory.mkdir(parents=True, exist_ok=True)
+    numeric_thread_env = configure_numeric_runtime_threads(config.solver_threads or 1)
     workflow_state = load_fjw_workflow_state(
         reference_dir=config.reference_dir,
         abaqus_inputs_path=config.abaqus_inputs_path,
@@ -120,6 +140,12 @@ def run_fjw_optimization(config: FJWOptimizationConfig) -> FJWOptimizationRunRes
             "max_iterations": config.max_iterations,
             "delta_tol": config.delta_tol,
             "num_time_steps": config.num_time_steps,
+            "runtime_profile": config.runtime_profile,
+            "sfepy_linear_solver": config.sfepy_linear_solver,
+            "case_parallelism": config.case_parallelism,
+            "solver_threads": config.solver_threads,
+            "numeric_thread_environment": numeric_thread_env,
+            "enable_sfepy_setup_cache": config.enable_sfepy_setup_cache,
             "resume": config.resume,
             "start_iteration": start_iteration,
             "run_directory": str(config.run_directory),
@@ -135,14 +161,19 @@ def run_fjw_optimization(config: FJWOptimizationConfig) -> FJWOptimizationRunRes
     current_mma_state = mma_state
 
     for _ in range(config.max_iterations):
+        timing_recorder = FJWTimingRecorder(root_name=f"iteration:{current_mma_state.iteration + 1:03d}")
         driver_request = FJWWorkflowDriverRequest(
             workflow_state=workflow_state,
             initial_design_mode="three_load",
             design=current_design,
             mma_state=current_mma_state,
             num_time_steps=config.num_time_steps,
+            case_parallelism=config.case_parallelism or 1,
+            timing_recorder=timing_recorder,
         )
-        result = _run_one_iteration(config, driver_request)
+        with timing_recorder.measure("outer_iteration", iteration_index=current_mma_state.iteration + 1):
+            result = _run_one_iteration(config, driver_request)
+        result.metadata["timing"] = timing_recorder.as_jsonable()
         iterations.append(result)
 
         next_design = result.iteration_state.next_design
@@ -150,10 +181,17 @@ def run_fjw_optimization(config: FJWOptimizationConfig) -> FJWOptimizationRunRes
             raise RuntimeError("FJW optimizer did not return next_design.")
         final_delta = _iteration_delta(result)
         if result.iteration_state.iteration_index % config.checkpoint_every == 0:
-            write_iteration_checkpoint(
+            with timing_recorder.measure("checkpoint_write", iteration_index=result.iteration_state.iteration_index):
+                write_iteration_checkpoint(
+                    run_directory=config.run_directory,
+                    result=result,
+                    delta=final_delta,
+                )
+            result.metadata["timing"] = timing_recorder.as_jsonable()
+            write_iteration_timing_report(
                 run_directory=config.run_directory,
-                result=result,
-                delta=final_delta,
+                iteration_index=result.iteration_state.iteration_index,
+                timing=result.metadata["timing"],
             )
 
         current_design = next_design.copy()
@@ -192,7 +230,8 @@ def _run_one_iteration(
         solver_config=FJWSfePyWorkflowSolverConfig(
             direct_solver_config=FJWDirectSolverConfig(
                 linear_solver_kind=config.sfepy_linear_solver,
-            )
+            ),
+            enable_setup_cache=config.enable_sfepy_setup_cache,
         ),
     )
 

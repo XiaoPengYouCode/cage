@@ -23,6 +23,7 @@ from fem_analysis.fjw_environment import (
     check_fjw_runtime_environment,
     write_fjw_preflight_report,
 )
+from fem_analysis.fjw_runtime_config import fjw_runtime_profile_names, get_fjw_runtime_config
 from fem_analysis.fjw_workflow_driver import FJWWorkflowDriverRequest
 from fem_analysis.fjw_workflow_loaders import load_fjw_workflow_state
 from fem_analysis.fjw_workflow_pipeline import (
@@ -292,10 +293,27 @@ def build_fjw_sfepy_iteration_parser() -> argparse.ArgumentParser:
         help="Number of biology time steps to run in this iteration.",
     )
     parser.add_argument(
+        "--runtime-profile",
+        choices=fjw_runtime_profile_names(),
+        default="local",
+        help="Runtime defaults for solver, case parallelism, and numeric thread budget.",
+    )
+    parser.add_argument(
+        "--case-parallelism",
+        type=int,
+        default=None,
+        help="Number of force cases to run at once. Defaults to the runtime profile.",
+    )
+    parser.add_argument(
         "--sfepy-linear-solver",
         choices=("scipy_direct", "scipy_iterative", "petsc_mumps"),
-        default="scipy_iterative",
-        help="SfePy linear solver profile. scipy_iterative is the Python-only default; scipy_direct is useful for small checks; petsc_mumps is optional.",
+        default=None,
+        help="SfePy linear solver profile. Defaults to the runtime profile.",
+    )
+    parser.add_argument(
+        "--disable-sfepy-setup-cache",
+        action="store_true",
+        help="Disable direct-solver setup caching for debugging.",
     )
     return parser
 
@@ -320,6 +338,24 @@ def build_fjw_optimize_parser() -> argparse.ArgumentParser:
     parser.add_argument("--abaqus-executable", default="abaqus")
     parser.add_argument("--cpus", type=int, default=8)
     parser.add_argument(
+        "--runtime-profile",
+        choices=fjw_runtime_profile_names(),
+        default="wuyinyun",
+        help="Runtime defaults for solver, case parallelism, and numeric thread budget.",
+    )
+    parser.add_argument(
+        "--case-parallelism",
+        type=int,
+        default=None,
+        help="Number of force cases to run at once. Defaults to the runtime profile.",
+    )
+    parser.add_argument(
+        "--solver-threads",
+        type=int,
+        default=None,
+        help="Numeric thread budget per force-case worker. Defaults to the runtime profile.",
+    )
+    parser.add_argument(
         "--real-run",
         action="store_true",
         help="Required for the Abaqus backend; dry-run jobs do not produce displacement vectors.",
@@ -327,8 +363,13 @@ def build_fjw_optimize_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sfepy-linear-solver",
         choices=("scipy_direct", "scipy_iterative", "petsc_mumps"),
-        default="scipy_iterative",
-        help="SfePy linear solver profile. scipy_iterative is the Python-only default; petsc_mumps is optional for large runs.",
+        default=None,
+        help="SfePy linear solver profile. Defaults to the runtime profile.",
+    )
+    parser.add_argument(
+        "--disable-sfepy-setup-cache",
+        action="store_true",
+        help="Disable direct-solver setup caching for debugging.",
     )
     return parser
 
@@ -571,17 +612,27 @@ def handle_fjw_direct(args: argparse.Namespace) -> None:
 
 def handle_fjw_sfepy_iteration(args: argparse.Namespace) -> None:
     workflow_state = _load_workflow_state_from_args(args)
+    runtime_config = get_fjw_runtime_config(args.runtime_profile)
+    sfepy_linear_solver = args.sfepy_linear_solver or runtime_config.sfepy_linear_solver
+    case_parallelism = args.case_parallelism or runtime_config.case_parallelism
     result = run_fjw_sfepy_workflow_iteration(
         driver_request=FJWWorkflowDriverRequest(
             workflow_state=workflow_state,
             initial_design_mode=args.initial_design_mode,
             num_time_steps=args.num_time_steps,
+            case_parallelism=case_parallelism,
         ),
-        solver_config=_build_sfepy_workflow_solver_config(args.sfepy_linear_solver),
+        solver_config=_build_sfepy_workflow_solver_config(
+            sfepy_linear_solver,
+            enable_setup_cache=not args.disable_sfepy_setup_cache,
+        ),
     )
     aggregate = result.iteration_state.aggregate_terms
     payload: dict[str, object] = {
         "backend": "sfepy_direct",
+        "runtime_profile": args.runtime_profile,
+        "sfepy_linear_solver": sfepy_linear_solver,
+        "case_parallelism": case_parallelism,
         "initial_design_mode": result.workflow_state.initial_state.mode,
         "num_time_steps": int(args.num_time_steps),
         "iteration_index": result.iteration_state.iteration_index,
@@ -623,11 +674,20 @@ def handle_fjw_optimize(args: argparse.Namespace) -> None:
             cpus=args.cpus,
             real_run=args.real_run,
             sfepy_linear_solver=args.sfepy_linear_solver,
+            runtime_profile=args.runtime_profile,
+            case_parallelism=args.case_parallelism,
+            solver_threads=args.solver_threads,
+            enable_sfepy_setup_cache=not args.disable_sfepy_setup_cache,
         )
     )
     payload = {
         "backend": result.config.backend,
         "mode": result.config.mode,
+        "runtime_profile": result.config.runtime_profile,
+        "sfepy_linear_solver": result.config.sfepy_linear_solver,
+        "case_parallelism": result.config.case_parallelism,
+        "solver_threads": result.config.solver_threads,
+        "enable_sfepy_setup_cache": result.config.enable_sfepy_setup_cache,
         "iteration_count": len(result.iterations),
         "final_delta": result.final_delta,
         "stopped_reason": result.stopped_reason,
@@ -691,12 +751,17 @@ def _load_workflow_state_from_args(args: argparse.Namespace):
     )
 
 
-def _build_sfepy_workflow_solver_config(linear_solver_kind: str):
+def _build_sfepy_workflow_solver_config(
+    linear_solver_kind: str,
+    *,
+    enable_setup_cache: bool = True,
+):
     from fem_analysis.fjw_direct_solver import FJWDirectSolverConfig
     from fem_analysis.fjw_workflow_sfepy_solver_adapters import FJWSfePyWorkflowSolverConfig
 
     return FJWSfePyWorkflowSolverConfig(
         direct_solver_config=FJWDirectSolverConfig(linear_solver_kind=linear_solver_kind),
+        enable_setup_cache=enable_setup_cache,
     )
 
 
