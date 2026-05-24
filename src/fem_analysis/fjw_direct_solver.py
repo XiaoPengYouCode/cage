@@ -6,6 +6,7 @@ from io import StringIO
 from typing import Any, Callable, Literal
 
 import numpy as np
+import scipy.sparse as sps
 
 # SfePy prints optional JAX import notices to stdout during import.
 with redirect_stdout(StringIO()):
@@ -24,6 +25,23 @@ from .fjw_workflow_models import FJWLoadCase, FJWWorkflowState
 
 
 LinearSolverKind = Literal["scipy_direct", "scipy_iterative", "petsc_mumps"]
+
+
+class FJWPETScKrylovSolver(PETScKrylovSolver):
+    """PETSc solver wrapper that matches SciPy CSR indices to PETSc IntType."""
+
+    def create_petsc_matrix(self, mtx, comm=None):
+        if isinstance(mtx, self.petsc.Mat):
+            return mtx
+
+        csr_mtx = sps.csr_matrix(mtx)
+        petsc_int_type = getattr(self.petsc, "IntType", np.int32)
+        indptr = np.asarray(csr_mtx.indptr, dtype=petsc_int_type)
+        indices = np.asarray(csr_mtx.indices, dtype=petsc_int_type)
+
+        pmtx = self.petsc.Mat()
+        pmtx.createAIJ(csr_mtx.shape, csr=(indptr, indices, csr_mtx.data), comm=comm)
+        return pmtx
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,7 +484,7 @@ def build_fjw_direct_problem(
     elif resolved_config.linear_solver_kind == "petsc_mumps":
         petsc_options = {**petsc_mumps_options(), **resolved_config.linear_solver_options}
         try:
-            linear_solver = PETScKrylovSolver(petsc_options)
+            linear_solver = FJWPETScKrylovSolver(petsc_options)
         except ModuleNotFoundError as exc:
             raise RuntimeError(
                 "The petsc_mumps SfePy backend requires petsc4py and a PETSc build "

@@ -4,8 +4,10 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import scipy.sparse as sps
 
 from fem_analysis.fjw_direct_solver import (
+    FJWPETScKrylovSolver,
     FJWDirectSolverConfig,
     build_fjw_direct_problem_setup,
     solve_fjw_direct_adjoint_case,
@@ -204,6 +206,35 @@ class FJWDirectSolverTest(unittest.TestCase):
 
         self.assertGreater(result.max_displacement_mm, 0.0)
         self.assertLess(result.top_rp_displacement[2], 0.0)
+
+    def test_petsc_solver_casts_csr_indices_to_petsc_int_type(self) -> None:
+        class FakeMat:
+            captured = None
+
+            def createAIJ(self, shape, *, csr, comm=None):
+                FakeMat.captured = csr
+
+        class FakePETSc:
+            IntType = np.int32
+            Mat = FakeMat
+
+        solver = object.__new__(FJWPETScKrylovSolver)
+        solver.petsc = FakePETSc
+        matrix = sps.csr_matrix(
+            (
+                np.array([1.0, 2.0], dtype=np.float64),
+                np.array([0, 1], dtype=np.int64),
+                np.array([0, 1, 2], dtype=np.int64),
+            ),
+            shape=(2, 2),
+        )
+
+        solver.create_petsc_matrix(matrix)
+
+        indptr, indices, data = FakeMat.captured
+        self.assertEqual(indptr.dtype, np.int32)
+        self.assertEqual(indices.dtype, np.int32)
+        np.testing.assert_allclose(data, [1.0, 2.0])
 
 
 if __name__ == "__main__":
