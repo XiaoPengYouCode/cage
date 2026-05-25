@@ -27,4 +27,8 @@ echo "subdivision=${SUBDIVISION}"
 echo "design_mode=${DESIGN_MODE}"
 echo "load_cases=${LOAD_CASES}"
 
-ssh "${REMOTE_ALIAS}" "${REMOTE_CMD}"
+if [[ "${REMOTE_ALIAS}" == "local" ]]; then
+  bash -lc "${REMOTE_CMD}"
+else
+  ssh "${REMOTE_ALIAS}" "${REMOTE_CMD}"
+fi
