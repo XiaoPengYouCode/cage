@@ -182,6 +182,56 @@ def tube_mesh_triangles(
     return np.array(triangles)
 
 
+def sphere_mesh_triangles(
+    center: np.ndarray,
+    radius: float,
+    lat_steps: int = 12,
+    lon_steps: int = 24,
+) -> np.ndarray:
+    """Build a simple UV sphere triangle mesh."""
+    center = np.asarray(center, dtype=np.float64)
+    lats = np.linspace(-0.5 * np.pi, 0.5 * np.pi, lat_steps + 1)
+    lons = np.linspace(0.0, 2.0 * np.pi, lon_steps, endpoint=False)
+
+    rings = []
+    for lat in lats:
+        cos_lat = np.cos(lat)
+        sin_lat = np.sin(lat)
+        ring = np.stack(
+            [
+                center[0] + radius * cos_lat * np.cos(lons),
+                center[1] + radius * cos_lat * np.sin(lons),
+                center[2] + radius * sin_lat * np.ones_like(lons),
+            ],
+            axis=1,
+        )
+        rings.append(ring)
+
+    triangles: list[np.ndarray] = []
+    south_pole = center + np.array([0.0, 0.0, -radius], dtype=np.float64)
+    north_pole = center + np.array([0.0, 0.0, radius], dtype=np.float64)
+
+    first_ring = rings[1]
+    for idx in range(lon_steps):
+        nxt = (idx + 1) % lon_steps
+        triangles.append(np.array([south_pole, first_ring[nxt], first_ring[idx]]))
+
+    for ring_idx in range(1, len(rings) - 2):
+        lower = rings[ring_idx]
+        upper = rings[ring_idx + 1]
+        for idx in range(lon_steps):
+            nxt = (idx + 1) % lon_steps
+            triangles.append(np.array([lower[idx], upper[nxt], upper[idx]]))
+            triangles.append(np.array([lower[idx], lower[nxt], upper[nxt]]))
+
+    last_ring = rings[-2]
+    for idx in range(lon_steps):
+        nxt = (idx + 1) % lon_steps
+        triangles.append(np.array([north_pole, last_ring[idx], last_ring[nxt]]))
+
+    return np.array(triangles)
+
+
 def write_ascii_stl(
     triangles: np.ndarray,
     output_path: Path,
@@ -247,6 +297,7 @@ def export_mixed_edges_to_stl(
         amplitude_ratio=helix_amplitude,
         tube_sides=tube_sides,
     )
+    cylinder_style = CylinderRodStyle(tube_sides=tube_sides)
     sphere_radius = radius * 1.25
 
     all_triangles: list[np.ndarray] = []
@@ -254,13 +305,18 @@ def export_mixed_edges_to_stl(
     # ── straight rods: manifold3d boolean union ──────────────────────────────
     straight_edges = buckets["cube_edge"] + buckets["face_edge"] + buckets["half_face"]
     if straight_edges:
-        cyls = [
-            c
-            for s, e in straight_edges
-            if (c := _make_cylinder_manifold(s, e, radius, tube_sides)) is not None
-        ]
-        if cyls:
-            all_triangles.append(_manifold_to_triangles(_union_manifolds(cyls)))
+        if m3d is not None:
+            cyls = [
+                c
+                for s, e in straight_edges
+                if (c := _make_cylinder_manifold(s, e, radius, tube_sides)) is not None
+            ]
+            if cyls:
+                all_triangles.append(_manifold_to_triangles(_union_manifolds(cyls)))
+        else:
+            for start, end in straight_edges:
+                rings = cylinder_style.build_segment_mesh(start, end, radius)
+                all_triangles.append(tube_mesh_triangles(rings, cap_ends=True))
 
     # ── interior helix rods: tube sides (no caps) + junction spheres ──────────
     interior_edges = buckets["interior"]
@@ -277,13 +333,24 @@ def export_mixed_edges_to_stl(
                 key = _pt_key(pt)
                 if key not in node_keys:
                     node_keys[key] = pt
-        spheres = [
-            m3d.Manifold.sphere(sphere_radius, circular_segments=tube_sides).translate(
-                [float(pt[0]), float(pt[1]), float(pt[2])]
-            )
-            for pt in node_keys.values()
-        ]
-        all_triangles.append(_manifold_to_triangles(_union_manifolds(spheres)))
+        if m3d is not None:
+            spheres = [
+                m3d.Manifold.sphere(sphere_radius, circular_segments=tube_sides).translate(
+                    [float(pt[0]), float(pt[1]), float(pt[2])]
+                )
+                for pt in node_keys.values()
+            ]
+            all_triangles.append(_manifold_to_triangles(_union_manifolds(spheres)))
+        else:
+            for pt in node_keys.values():
+                all_triangles.append(
+                    sphere_mesh_triangles(
+                        pt,
+                        sphere_radius,
+                        lat_steps=max(6, tube_sides // 2),
+                        lon_steps=tube_sides,
+                    )
+                )
 
     if not all_triangles:
         raise ValueError("No geometry to export after filtering.")
