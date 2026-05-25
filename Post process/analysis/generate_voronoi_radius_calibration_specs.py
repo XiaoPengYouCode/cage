@@ -10,6 +10,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = ROOT / "outputs" / "voronoi_radius_calibration"
+DEFAULT_BANDS_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_target_modulus_bands.json"
 
 
 def _parse_float_list(raw: str) -> list[float]:
@@ -126,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bands-json",
         type=Path,
-        default=Path("Post process/analysis/output/iter017_target_modulus_bands.json"),
+        default=DEFAULT_BANDS_JSON,
     )
     parser.add_argument(
         "--output-dir",
