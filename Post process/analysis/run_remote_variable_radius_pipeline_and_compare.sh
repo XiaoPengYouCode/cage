@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 REMOTE_ALIAS="${1:-wuyinyun}"
@@ -20,7 +20,8 @@ uv run python 'Post process/analysis/compare_iter017_skeleton_vs_density.py' \
   --design-mode '${DESIGN_MODE}' \
   --replacement-npz 'outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius.npz'"
 
-for case_name in ${(s:,:)LOAD_CASES}; do
+IFS=',' read -r -a LOAD_CASE_ARRAY <<< "${LOAD_CASES}"
+for case_name in "${LOAD_CASE_ARRAY[@]}"; do
   REMOTE_CMD="${REMOTE_CMD} --load-case '${case_name}'"
 done
 
