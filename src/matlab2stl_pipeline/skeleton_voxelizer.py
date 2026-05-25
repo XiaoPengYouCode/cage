@@ -90,6 +90,22 @@ def _make_sphere_struct(radius_voxels: float) -> np.ndarray:
     return struct
 
 
+def _rasterize_edges_to_mask(
+    edges: np.ndarray,
+    fine_shape: tuple[int, int, int],
+    *,
+    subdivision: int,
+    pad: int,
+) -> np.ndarray:
+    mask = np.zeros(fine_shape, dtype=bool)
+    scale = float(subdivision)
+    for edge in np.asarray(edges, dtype=np.float64):
+        p0_fine = edge[0] * scale + pad
+        p1_fine = edge[1] * scale + pad
+        _rasterize_segment_unbounded(p0_fine, p1_fine, fine_shape, mask)
+    return mask
+
+
 # ---------------------------------------------------------------------------
 # Step 9 — Voxelize + dilate (pure voxel output, no mesh)
 # ---------------------------------------------------------------------------
@@ -177,6 +193,109 @@ def voxelize_skeleton(
     output_npz_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(str(output_npz_path), **payload)
     return dilated
+
+
+def voxelize_variable_radius_skeleton(
+    edges_npz_path: Path,
+    aligned_npz_path: Path,
+    output_npz_path: Path,
+    subdivision: int = 10,
+    radius_field_key: str = "assigned_radius_mm",
+) -> np.ndarray:
+    """Rasterize Voronoi edges with a per-edge physical radius field.
+
+    The input NPZ must contain:
+
+    - ``edges``: float32/float64 ``(E, 2, 3)`` in coarse voxel coordinates
+    - ``assigned_radius_mm`` (or another key selected by ``radius_field_key``):
+      float array ``(E,)`` with one physical radius per edge in millimeters
+    """
+    edge_data = np.load(str(edges_npz_path))
+    aligned_data = np.load(str(aligned_npz_path))
+
+    edges: np.ndarray = np.asarray(edge_data["edges"], dtype=np.float64)
+    if radius_field_key not in edge_data:
+        raise KeyError(f"radius field {radius_field_key!r} not found in {edges_npz_path}.")
+    edge_radii_mm = np.asarray(edge_data[radius_field_key], dtype=np.float64).reshape(-1)
+    if edges.shape[0] != edge_radii_mm.shape[0]:
+        raise ValueError("edges and per-edge radius field must have the same length.")
+    if edges.shape[0] == 0:
+        raise ValueError("No edges available for variable-radius voxelization.")
+    if np.any(edge_radii_mm <= 0.0):
+        raise ValueError("Per-edge radii must be strictly positive.")
+
+    grid_shape_coarse = aligned_data["grid_shape_xyz"].tolist()
+    voxel_size_xyz_m: np.ndarray = aligned_data["voxel_size_xyz_m"]
+    fine_voxel_size_m = voxel_size_xyz_m / subdivision
+    fine_voxel_size_mm = fine_voxel_size_m * 1e3
+    if not np.allclose(fine_voxel_size_mm, fine_voxel_size_mm[0]):
+        raise ValueError("Variable-radius voxelization currently expects isotropic fine voxels.")
+
+    edge_radii_fine = edge_radii_mm / float(fine_voxel_size_mm[0])
+    max_radius_fine = float(np.max(edge_radii_fine))
+    pad = int(np.ceil(max_radius_fine)) + 1
+
+    fnx = grid_shape_coarse[0] * subdivision + 2 * pad
+    fny = grid_shape_coarse[1] * subdivision + 2 * pad
+    fnz = grid_shape_coarse[2] * subdivision + 2 * pad
+    fine_shape = (fnx, fny, fnz)
+
+    print(
+        f"  Variable-radius fine grid (with pad={pad}): {fnx}×{fny}×{fnz}  "
+        f"({fine_voxel_size_mm[0]:.3f} mm voxels)"
+    )
+
+    rounded_radii_fine = np.round(edge_radii_fine, decimals=6)
+    unique_radii_fine = np.unique(rounded_radii_fine)
+    dilated = np.zeros(fine_shape, dtype=bool)
+    voxel_radius_mm = np.zeros(fine_shape, dtype=np.float32)
+
+    for radius_fine in unique_radii_fine.tolist():
+        mask = np.isclose(rounded_radii_fine, radius_fine, atol=1e-9)
+        if not np.any(mask):
+            continue
+        group_edges = edges[mask]
+        skeleton = _rasterize_edges_to_mask(
+            group_edges,
+            fine_shape,
+            subdivision=subdivision,
+            pad=pad,
+        )
+        struct = _make_sphere_struct(float(radius_fine))
+        group_dilated = scipy.ndimage.binary_dilation(
+            skeleton,
+            structure=struct,
+            border_value=0,
+        )
+        dilated |= group_dilated
+        group_radius_mm = float(radius_fine) * float(fine_voxel_size_mm[0])
+        voxel_radius_mm = np.where(
+            group_dilated,
+            np.maximum(voxel_radius_mm, group_radius_mm).astype(np.float32),
+            voxel_radius_mm,
+        )
+        print(
+            f"  Radius {float(radius_fine):.3f} fine voxels "
+            f"({mask.sum()} edges) -> {int(group_dilated.sum())} voxels"
+        )
+
+    origin_m = aligned_data["origin_m"] - pad * fine_voxel_size_m
+    payload = {
+        "voxels": dilated.astype(np.uint8),
+        "grid_shape_xyz": np.array([fnx, fny, fnz], dtype=np.int32),
+        "origin_m": origin_m.astype(np.float32),
+        "voxel_size_xyz_m": fine_voxel_size_m.astype(np.float32),
+        "voxel_radius_mm": voxel_radius_mm.astype(np.float32),
+        "subdivision": np.int32(subdivision),
+        "dilation_radius_fine_voxels": np.array(unique_radii_fine, dtype=np.float32),
+        "pad_fine_voxels": np.int32(pad),
+        "variable_radius_mode": np.array(True),
+        "radius_field_key": np.array(radius_field_key),
+        "edge_count": np.int32(edges.shape[0]),
+    }
+    output_npz_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(str(output_npz_path), **payload)
+    return payload["voxels"]
 
 
 # ---------------------------------------------------------------------------
