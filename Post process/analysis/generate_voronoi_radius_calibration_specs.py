@@ -65,6 +65,7 @@ def generate_specs(
     rng_seed: int,
     radii_mm: list[float],
     cell_size_mm: float,
+    per_band: bool,
 ) -> dict[str, object]:
     band_summary = _load_band_summary(bands_json)
     row = _build_row(num_seeds=num_seeds, rng_seed=rng_seed)
@@ -76,25 +77,50 @@ def generate_specs(
     output_dir.mkdir(parents=True, exist_ok=True)
     specimens: list[dict[str, object]] = []
 
-    for band in band_summary["bands"]:
-        band_index = int(band["band_index"])
-        representative_design = float(band["representative_design"])
-        representative_target_modulus = float(band["representative_target_modulus"])
+    if per_band:
+        for band in band_summary["bands"]:
+            band_index = int(band["band_index"])
+            representative_design = float(band["representative_design"])
+            representative_target_modulus = float(band["representative_target_modulus"])
 
+            for radius_mm in radii_mm:
+                tag = f"band{band_index:02d}_cell{cell_size_mm:.3f}mm_r{radius_mm:.3f}mm".replace(".", "p")
+                stl_path = output_dir / f"{tag}.stl"
+                stl_summary = _export_stl(scaled_edges, radius=radius_mm, output_path=stl_path)
+                specimens.append(
+                    {
+                        "tag": tag,
+                        "band_index": band_index,
+                        "representative_design": representative_design,
+                        "representative_target_modulus": representative_target_modulus,
+                        "num_seeds": int(num_seeds),
+                        "rng_seed": int(rng_seed),
+                        "cell_size_mm": float(cell_size_mm),
+                        "radius_mm": float(radius_mm),
+                        "stl": stl_summary,
+                    }
+                )
+    else:
+        support_bands = [
+            {
+                "band_index": int(band["band_index"]),
+                "representative_design": float(band["representative_design"]),
+                "representative_target_modulus": float(band["representative_target_modulus"]),
+            }
+            for band in band_summary["bands"]
+        ]
         for radius_mm in radii_mm:
-            tag = f"band{band_index:02d}_cell{cell_size_mm:.3f}mm_r{radius_mm:.3f}mm".replace(".", "p")
+            tag = f"radius_only_cell{cell_size_mm:.3f}mm_r{radius_mm:.3f}mm".replace(".", "p")
             stl_path = output_dir / f"{tag}.stl"
             stl_summary = _export_stl(scaled_edges, radius=radius_mm, output_path=stl_path)
             specimens.append(
                 {
                     "tag": tag,
-                    "band_index": band_index,
-                    "representative_design": representative_design,
-                    "representative_target_modulus": representative_target_modulus,
                     "num_seeds": int(num_seeds),
                     "rng_seed": int(rng_seed),
                     "cell_size_mm": float(cell_size_mm),
                     "radius_mm": float(radius_mm),
+                    "support_bands": support_bands,
                     "stl": stl_summary,
                 }
             )
@@ -103,6 +129,7 @@ def generate_specs(
         "source_band_json": str(bands_json.resolve()),
         "output_dir": str(output_dir.resolve()),
         "primary_variable": "effective_rod_radius",
+        "specimen_layout": "per_band" if per_band else "radius_only",
         "fixed_variables": {
             "num_seeds": int(num_seeds),
             "rng_seed": int(rng_seed),
@@ -156,6 +183,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=4.0,
         help="Physical edge length of the unit-cell bounding box in millimeters.",
     )
+    parser.add_argument(
+        "--per-band",
+        action="store_true",
+        help="Generate one specimen per (band, radius) pair instead of one specimen per radius.",
+    )
     return parser
 
 
@@ -169,6 +201,7 @@ def main() -> int:
         rng_seed=int(args.rng_seed),
         radii_mm=_parse_float_list(args.radii_mm),
         cell_size_mm=float(args.cell_size_mm),
+        per_band=bool(args.per_band),
     )
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
     return 0

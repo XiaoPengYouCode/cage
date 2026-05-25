@@ -298,20 +298,31 @@ def evaluate_manifest(
             total_force_n=total_force_n,
             material=material,
         )
-        results.append(
-            {
-                "tag": specimen["tag"],
-                "band_index": int(specimen["band_index"]),
-                "representative_design": float(specimen["representative_design"]),
-                "representative_target_modulus": float(specimen["representative_target_modulus"]),
-                "radius_mm": float(specimen["radius_mm"]),
-                "voxel_size_mm": float(voxel_size_mm),
-                "material_name": material.name,
-                "youngs_modulus_gpa": float(material.youngs_modulus_gpa),
-                "poisson_ratio": float(material.poisson_ratio),
-                "metrics": metrics,
-            }
-        )
+        base_record = {
+            "tag": specimen["tag"],
+            "radius_mm": float(specimen["radius_mm"]),
+            "voxel_size_mm": float(voxel_size_mm),
+            "material_name": material.name,
+            "youngs_modulus_gpa": float(material.youngs_modulus_gpa),
+            "poisson_ratio": float(material.poisson_ratio),
+            "metrics": metrics,
+        }
+        if "band_index" in specimen:
+            results.append(
+                {
+                    **base_record,
+                    "band_index": int(specimen["band_index"]),
+                    "representative_design": float(specimen["representative_design"]),
+                    "representative_target_modulus": float(specimen["representative_target_modulus"]),
+                }
+            )
+        else:
+            results.append(
+                {
+                    **base_record,
+                    "support_bands": specimen.get("support_bands", []),
+                }
+            )
 
     payload = {
         "source_manifest": str(manifest_path.resolve()),
