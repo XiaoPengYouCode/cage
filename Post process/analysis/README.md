@@ -18,7 +18,7 @@
 - `build_iter017_variable_radius_edges.py`：把 `iter_017` 的 Voronoi 边中点回采样到对齐密度场，按当前 `iter017_band_radius_lookup.json` 为每条边附上 `target_modulus`、`band_index` 和 `assigned_radius_mm`
 - `build_iter017_variable_radius_skeleton.py`：基于带半径场的边工件生成整结构 variable-radius 骨架体素，并可直接导出 smoke 级 GLB / STL
 - `run_remote_radius_calibration_wide_v3.sh`：在 `wuyinyun` 上启动下一轮高模量端半径扩展标定
-- `build_iter017_variable_radius_replacement_design.py`：把 variable-radius 骨架细体素聚合回 coarse 设计网格，生成第一版 FE-ready `replacement_design_cage`
+- `build_iter017_variable_radius_replacement_design.py`：把 variable-radius 骨架细体素聚合回 coarse 设计网格，按 `iter017_band_radius_lookup.json` 中的稳定 `r -> E_eff` 支撑曲线生成第一版 FE-ready `replacement_design_cage`
 - `run_remote_variable_radius_forward_compare.sh`：在 `wuyinyun` 上对指定 load case 直接跑 `modulus_weighted` replacement forward compare
 - `run_remote_variable_radius_pipeline_and_compare.sh`：在 `wuyinyun` 上串行执行 variable-radius edges -> skeleton -> replacement design -> forward compare 整条链
 
@@ -44,3 +44,18 @@
 - `outputs/fjw_optimize_real_iter017/fjw_iter017_skeleton_voxels_variable_radius_smoke.npz`
 - `outputs/fjw_optimize_real_iter017/fjw_iter017_skeleton_variable_radius_smoke.glb`
 - `outputs/fjw_optimize_real_iter017/fjw_iter017_skeleton_variable_radius_smoke.stl`
+- `outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius.npz`
+
+当前这条链路的物理口径：
+
+- 上游 `design_cage` 先通过 `E_target = E_min + E_0 x^3` 转成目标等效模量场
+- 中间用 `iter017_band_radius_lookup.json` 把 `E_target` 映射成 bandwise 杆半径
+- 下游再把 variable-radius 骨架聚合回 coarse FE 设计网格
+- `design_cage_fill_fraction` 只是探索性几何指标
+- `design_cage_modulus_weighted` 才是当前第一版 FE-ready 代理场，用来承载 `fill_fraction * mean(E_eff(r))`
+
+当前结论也要写死：
+
+- `fill fraction` 不能当成最终学术验证对象
+- `modulus_weighted` 只是第一版可运行代理，不是最终均匀化闭环
+- 真正最终链路仍然要求远端 forward compare 和更宽的半径标定支撑
