@@ -28,15 +28,29 @@ def _load_iter017_design() -> np.ndarray:
 
 
 def _load_iter017_reference_case(load_case_name: str) -> dict[str, object]:
-    summary = json.loads((ROOT / "Post process" / "analysis" / "output" / "iter017_summary.json").read_text(encoding="utf-8"))
     forward_step = np.load(RUN_DIR / load_case_name / "forward_t0" / "forward_step.npz")
-    case_summary = summary["cases"][load_case_name]
+    case_history = np.load(RUN_DIR / load_case_name / "case_history.npz", allow_pickle=True)
     ref_bone_s = np.asarray(forward_step["bone_s"], dtype=np.float64)
     ref_delta = np.asarray(forward_step["bone_density_delta"], dtype=np.float64)
+    ref_obj_bo_next = np.asarray(forward_step["obj_bo_next"], dtype=np.float64)
+    summary_path = ROOT / "Post process" / "analysis" / "output" / "iter017_summary.json"
+    max_displacement_mm: float | None = None
+    bo_sum_next_summary: float | None = None
+    if summary_path.exists():
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        case_summary = summary["cases"][load_case_name]
+        max_displacement_mm = float(case_summary["element_displacement_max"])
+        bo_sum_next_summary = float(case_summary["bo_sum_final"])
+
+    if max_displacement_mm is None:
+        full_element_displacements = np.asarray(forward_step["full_element_displacements"], dtype=np.float64)
+        max_displacement_mm = float(np.linalg.norm(full_element_displacements, axis=1).max())
+
     return {
-        "max_displacement_mm": float(case_summary["element_displacement_max"]),
+        "max_displacement_mm": max_displacement_mm,
         "top_rp_displacement": None,
-        "bo_sum_next": float(case_summary["bo_sum_final"]),
+        "bo_sum_next": bo_sum_next_summary if bo_sum_next_summary is not None else float(np.sum(ref_obj_bo_next, dtype=np.float64)),
+        "bo_sum_next_history": float(np.asarray(case_history["bo_sum_history"], dtype=np.float64)[-1]),
         "bone_s_mean": float(np.mean(ref_bone_s, dtype=np.float64)),
         "bone_s_p95": float(np.percentile(ref_bone_s, 95)),
         "bone_s_max": float(np.max(ref_bone_s)),
