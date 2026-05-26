@@ -116,8 +116,9 @@ def build_replacement_design(
     restore_t_m = np.asarray(aligned["restore_t"], dtype=np.float64)
 
     fine_voxel_size_m = float(fine_voxel_size_xyz_m[0])
-    coarse_voxel_size_mm = float(workflow_state.material_constants.voxel_volume ** (1.0 / 3.0))
-    coarse_voxel_size_m = coarse_voxel_size_mm / 1e3
+    source_voxel_size_m = float(np.asarray(aligned["voxel_size_xyz_m"], dtype=np.float64)[0])
+    fe_material_voxel_size_mm = float(workflow_state.material_constants.voxel_volume ** (1.0 / 3.0))
+    fe_material_voxel_size_m = fe_material_voxel_size_mm / 1e3
     raw_shape = np.asarray(workflow_state.mesh.grid_shape_xyz, dtype=np.int32)
 
     support_r_mm, support_e_gpa = _load_radius_modulus_curve(lookup_json)
@@ -128,7 +129,7 @@ def build_replacement_design(
         aligned_points_m,
         restore_R=restore_R,
         restore_t_m=restore_t_m,
-        voxel_size_m=coarse_voxel_size_m,
+        voxel_size_m=source_voxel_size_m,
     )
 
     coarse_indices = np.floor(original_points_vox + 1e-8).astype(np.int32)
@@ -157,7 +158,7 @@ def build_replacement_design(
         occupied_radius_mm.astype(np.float32),
     )
 
-    subdivision = int(round(coarse_voxel_size_m / fine_voxel_size_m))
+    subdivision = int(round(source_voxel_size_m / fine_voxel_size_m))
     fine_per_coarse = subdivision**3
     coarse_fill = coarse_counts.astype(np.float64) / float(fine_per_coarse)
     coarse_fill = np.clip(coarse_fill, 0.0, 1.0)
@@ -263,8 +264,10 @@ def build_replacement_design(
         "coarse_proxy_modulus_mean_only_gpa_grid": coarse_proxy_modulus_mean_only_gpa.astype(np.float32),
         "coarse_proxy_modulus_local_support_gpa_grid": coarse_proxy_modulus_local_support_gpa.astype(np.float32),
         "raw_grid_shape_xyz": raw_shape.astype(np.int32),
-        "coarse_voxel_size_m": np.array(coarse_voxel_size_m, dtype=np.float32),
-        "coarse_voxel_size_mm": np.array(coarse_voxel_size_mm, dtype=np.float32),
+        "coarse_voxel_size_m": np.array(source_voxel_size_m, dtype=np.float32),
+        "coarse_voxel_size_mm": np.array(source_voxel_size_m * 1e3, dtype=np.float32),
+        "fe_material_voxel_size_m": np.array(fe_material_voxel_size_m, dtype=np.float32),
+        "fe_material_voxel_size_mm": np.array(fe_material_voxel_size_mm, dtype=np.float32),
         "fine_voxel_size_m": np.array(fine_voxel_size_m, dtype=np.float32),
         "subdivision": np.array(subdivision, dtype=np.int32),
         "aggregation_mode": np.array(aggregation_mode),

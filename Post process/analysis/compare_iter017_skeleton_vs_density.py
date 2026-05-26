@@ -88,8 +88,9 @@ def build_replacement_design_from_skeleton() -> dict[str, object]:
     restore_t_m = np.asarray(aligned["restore_t"], dtype=np.float64)
 
     fine_voxel_size_m = float(fine_voxel_size_xyz_m[0])
-    coarse_voxel_size_mm = float(workflow_state.material_constants.voxel_volume ** (1.0 / 3.0))
-    coarse_voxel_size_m = coarse_voxel_size_mm / 1e3
+    source_voxel_size_m = float(np.asarray(aligned["voxel_size_xyz_m"], dtype=np.float64)[0])
+    fe_material_voxel_size_mm = float(workflow_state.material_constants.voxel_volume ** (1.0 / 3.0))
+    fe_material_voxel_size_m = fe_material_voxel_size_mm / 1e3
 
     occupied_indices = np.argwhere(occupancy)
     aligned_points_m = origin_m + occupied_indices.astype(np.float64) * fine_voxel_size_m
@@ -97,7 +98,7 @@ def build_replacement_design_from_skeleton() -> dict[str, object]:
         aligned_points_m,
         restore_R=restore_R,
         restore_t_m=restore_t_m,
-        voxel_size_m=coarse_voxel_size_m,
+        voxel_size_m=source_voxel_size_m,
     )
 
     coarse_indices = np.floor(original_points_vox + 1e-8).astype(np.int32)
@@ -112,7 +113,7 @@ def build_replacement_design_from_skeleton() -> dict[str, object]:
         1,
     )
 
-    subdivision = int(round(coarse_voxel_size_m / fine_voxel_size_m))
+    subdivision = int(round(source_voxel_size_m / fine_voxel_size_m))
     fine_per_coarse = subdivision**3
     coarse_fill = coarse_counts.astype(np.float64) / float(fine_per_coarse)
     coarse_fill = np.clip(coarse_fill, 0.0, 1.0)
@@ -135,8 +136,10 @@ def build_replacement_design_from_skeleton() -> dict[str, object]:
         "coarse_counts_grid": coarse_counts,
         "coarse_fill_grid": coarse_fill,
         "raw_grid_shape_xyz": raw_shape,
-        "coarse_voxel_size_m": coarse_voxel_size_m,
-        "coarse_voxel_size_mm": coarse_voxel_size_mm,
+        "coarse_voxel_size_m": source_voxel_size_m,
+        "coarse_voxel_size_mm": source_voxel_size_m * 1e3,
+        "fe_material_voxel_size_m": fe_material_voxel_size_m,
+        "fe_material_voxel_size_mm": fe_material_voxel_size_mm,
         "fine_voxel_size_m": fine_voxel_size_m,
         "subdivision": subdivision,
         "source_skeleton_npz": str((OUTPUT_DIR / "fjw_iter017_skeleton_voxels_density.npz").resolve()),
