@@ -6,14 +6,17 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import scipy.ndimage
 
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = ROOT / "outputs" / "fjw_optimize_real_iter017"
-DEFAULT_SKELETON_NPZ = OUTPUT_DIR / "fjw_iter017_skeleton_voxels_variable_radius.npz"
+DEFAULT_SKELETON_NPZ = OUTPUT_DIR / "fjw_iter017_skeleton_voxels_variable_radius_seed55_plus_lowmid.npz"
 DEFAULT_ALIGNED_NPZ = OUTPUT_DIR / "fjw_iter017_aligned_density_gamma1.npz"
-DEFAULT_LOOKUP_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup.json"
-DEFAULT_OUTPUT_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius.npz"
+DEFAULT_LOOKUP_JSON = (
+    ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup_combined_seed55_plus_lowmid.json"
+)
+DEFAULT_OUTPUT_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid.npz"
 
 X_MIN = 0.001
 E0_CAGE_MPA = 110000.0
@@ -64,12 +67,39 @@ def _modulus_mpa_to_design_field(modulus_mpa: np.ndarray) -> np.ndarray:
     return np.clip(design, X_MIN, 1.0)
 
 
+def _local_support_modulus_gpa(
+    coarse_modulus_mean_gpa: np.ndarray,
+    coarse_counts: np.ndarray,
+    *,
+    support_radius_cells: float,
+) -> np.ndarray:
+    if support_radius_cells <= 0.0:
+        raise ValueError("support_radius_cells must be positive for local_support aggregation.")
+
+    occupied_mask = coarse_counts > 0
+    if not np.any(occupied_mask):
+        return np.zeros_like(coarse_modulus_mean_gpa, dtype=np.float64)
+
+    distances, nearest_indices = scipy.ndimage.distance_transform_edt(
+        ~occupied_mask,
+        return_indices=True,
+    )
+    nearest_modulus = coarse_modulus_mean_gpa[
+        nearest_indices[0],
+        nearest_indices[1],
+        nearest_indices[2],
+    ]
+    return np.where(distances <= support_radius_cells, nearest_modulus, 0.0).astype(np.float64)
+
+
 def build_replacement_design(
     *,
     skeleton_npz: Path,
     aligned_npz: Path,
     lookup_json: Path,
     output_npz: Path,
+    aggregation_mode: str,
+    local_support_radius_cells: float,
 ) -> dict[str, object]:
     workflow_state = _load_workflow_state()
     skeleton = np.load(skeleton_npz, allow_pickle=True)
@@ -145,19 +175,33 @@ def build_replacement_design(
         where=coarse_counts > 0,
     )
 
-    # The calibrated E_eff(r) already comes from a homogenized Voronoi unit-cell response.
-    # Multiplying it by another coarse fill fraction would penalize porosity twice:
-    # once inside the local calibration, and once again during coarse aggregation.
     coarse_proxy_modulus_fill_scaled_gpa = coarse_fill * coarse_modulus_mean_gpa
     coarse_proxy_modulus_mean_only_gpa = np.where(
         coarse_counts > 0,
         coarse_modulus_mean_gpa,
         0.0,
     )
-    coarse_proxy_modulus_gpa = coarse_proxy_modulus_mean_only_gpa
+    coarse_proxy_modulus_local_support_gpa = _local_support_modulus_gpa(
+        coarse_modulus_mean_gpa,
+        coarse_counts,
+        support_radius_cells=local_support_radius_cells,
+    )
+    if aggregation_mode == "mean_only":
+        # The calibrated E_eff(r) already comes from a homogenized Voronoi unit-cell response.
+        # Multiplying it by another coarse fill fraction would penalize porosity twice.
+        coarse_proxy_modulus_gpa = coarse_proxy_modulus_mean_only_gpa
+    elif aggregation_mode == "fill_scaled":
+        coarse_proxy_modulus_gpa = coarse_proxy_modulus_fill_scaled_gpa
+    elif aggregation_mode == "local_support":
+        # A coarse design cell can represent a finite support volume around the local
+        # rod network, not just the exact fine voxels that happen to land inside it.
+        coarse_proxy_modulus_gpa = coarse_proxy_modulus_local_support_gpa
+    else:
+        raise ValueError(f"Unsupported aggregation mode: {aggregation_mode!r}.")
+
     coarse_proxy_modulus_mpa = coarse_proxy_modulus_gpa * 1e3
     coarse_design_modulus_weighted = np.where(
-        coarse_counts > 0,
+        coarse_proxy_modulus_gpa > 0.0,
         _modulus_mpa_to_design_field(coarse_proxy_modulus_mpa),
         X_MIN,
     )
@@ -216,19 +260,23 @@ def build_replacement_design(
         "coarse_radius_max_mm_grid": coarse_radius_max_mm.astype(np.float32),
         "coarse_proxy_modulus_gpa_grid": coarse_proxy_modulus_gpa.astype(np.float32),
         "coarse_proxy_modulus_fill_scaled_gpa_grid": coarse_proxy_modulus_fill_scaled_gpa.astype(np.float32),
+        "coarse_proxy_modulus_mean_only_gpa_grid": coarse_proxy_modulus_mean_only_gpa.astype(np.float32),
+        "coarse_proxy_modulus_local_support_gpa_grid": coarse_proxy_modulus_local_support_gpa.astype(np.float32),
         "raw_grid_shape_xyz": raw_shape.astype(np.int32),
         "coarse_voxel_size_m": np.array(coarse_voxel_size_m, dtype=np.float32),
         "coarse_voxel_size_mm": np.array(coarse_voxel_size_mm, dtype=np.float32),
         "fine_voxel_size_m": np.array(fine_voxel_size_m, dtype=np.float32),
         "subdivision": np.array(subdivision, dtype=np.int32),
+        "aggregation_mode": np.array(aggregation_mode),
+        "local_support_radius_cells": np.array(local_support_radius_cells, dtype=np.float32),
         "source_skeleton_npz": np.array(str(skeleton_npz.resolve())),
         "source_aligned_npz": np.array(str(aligned_npz.resolve())),
         "source_lookup_json": np.array(str(lookup_json.resolve())),
-        "design_rule": np.array("modulus_mean_radius_proxy"),
+        "design_rule": np.array(f"modulus_{aggregation_mode}_radius_proxy"),
         "design_rule_note": np.array(
-            "Per-coarse-cell proxy modulus = mean(calibrated apparent modulus of occupied fine voxels). "
-            "The old fill_fraction * E_eff variant is still stored as a diagnostic field, but is not used "
-            "as the primary FE replacement because it double-penalizes porosity."
+            "mean_only uses the mean calibrated apparent modulus of occupied fine voxels. "
+            "fill_scaled keeps the older fill_fraction * E_eff diagnostic. "
+            "local_support assigns the nearest occupied coarse-cell modulus within a finite support radius."
         ),
     }
     output_npz.parent.mkdir(parents=True, exist_ok=True)
@@ -237,12 +285,16 @@ def build_replacement_design(
     return {
         "output_npz": str(output_npz.resolve()),
         "replacement_nonzero_count": int(np.count_nonzero(replacement_fill_fraction > X_MIN)),
+        "replacement_modulus_weighted_nonzero_count": int(np.count_nonzero(replacement_modulus_weighted > X_MIN)),
+        "replacement_proxy_modulus_nonzero_count": int(np.count_nonzero(replacement_proxy_modulus_gpa > 0.0)),
         "replacement_binary_sum": float(np.sum(replacement_binary, dtype=np.float64)),
         "replacement_fill_fraction_sum": float(np.sum(replacement_fill_fraction, dtype=np.float64)),
         "replacement_modulus_weighted_sum": float(np.sum(replacement_modulus_weighted, dtype=np.float64)),
         "replacement_modulus_weighted_mean": float(np.mean(replacement_modulus_weighted, dtype=np.float64)),
         "replacement_modulus_weighted_max": float(np.max(replacement_modulus_weighted)),
         "replacement_proxy_modulus_gpa_max": float(np.max(replacement_proxy_modulus_gpa)),
+        "aggregation_mode": aggregation_mode,
+        "local_support_radius_cells": local_support_radius_cells,
         "replacement_proxy_modulus_fill_scaled_gpa_max": float(
             np.max(
                 coarse_proxy_modulus_fill_scaled_gpa[
@@ -265,6 +317,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lookup-json", type=Path, default=DEFAULT_LOOKUP_JSON)
     parser.add_argument("--calibration-summary-json", type=Path, dest="lookup_json_legacy")
     parser.add_argument("--output-npz", type=Path, default=DEFAULT_OUTPUT_NPZ)
+    parser.add_argument(
+        "--aggregation-mode",
+        choices=("mean_only", "fill_scaled", "local_support"),
+        default="mean_only",
+        help="How calibrated fine-voxel moduli are aggregated onto the coarse design grid.",
+    )
+    parser.add_argument(
+        "--local-support-radius-cells",
+        type=float,
+        default=1.5,
+        help="Coarse-cell radius used by --aggregation-mode local_support.",
+    )
     return parser
 
 
@@ -276,6 +340,8 @@ def main() -> int:
         aligned_npz=args.aligned_npz,
         lookup_json=args.lookup_json_legacy or args.lookup_json,
         output_npz=args.output_npz,
+        aggregation_mode=args.aggregation_mode,
+        local_support_radius_cells=args.local_support_radius_cells,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0

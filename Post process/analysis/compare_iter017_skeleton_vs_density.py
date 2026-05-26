@@ -12,7 +12,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = ROOT / "outputs" / "fjw_optimize_real_iter017"
 RUN_DIR = ROOT / "runs" / "fjw_optimize_real" / "iter_017"
-DEFAULT_REPLACEMENT_DESIGN_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius.npz"
+DEFAULT_REPLACEMENT_DESIGN_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid.npz"
 
 
 def _load_workflow_state():
@@ -227,6 +227,7 @@ def run_forward_comparison(
     design_mode: str,
     load_case_names: tuple[str, ...],
     replacement_npz_path: Path,
+    comparison_tag: str | None,
 ) -> dict[str, object]:
     workflow_state = _load_workflow_state()
     replacement_design = _load_replacement_design(
@@ -239,17 +240,20 @@ def run_forward_comparison(
     results: dict[str, object] = {
         "design_mode": design_mode,
         "replacement_npz_path": str(replacement_npz_path.resolve()),
+        "comparison_tag": comparison_tag,
         "reference_design_sum": float(np.sum(original_design, dtype=np.float64)),
         "replacement_design_sum": float(np.sum(replacement_design, dtype=np.float64)),
         "cases": {},
     }
     case_tag = "-".join(load_case_names)
-    progress_path = OUTPUT_DIR / f"fjw_iter017_skeleton_vs_density_{design_mode}_{case_tag}_progress.json"
+    output_tag = f"{design_mode}_{case_tag}_{comparison_tag}" if comparison_tag else f"{design_mode}_{case_tag}"
+    progress_path = OUTPUT_DIR / f"fjw_iter017_skeleton_vs_density_{output_tag}_progress.json"
     _write_json(
         progress_path,
         {
             "status": "started",
             "design_mode": design_mode,
+            "comparison_tag": comparison_tag,
             "load_case_names": list(load_case_names),
             "cases_completed": [],
         },
@@ -306,6 +310,7 @@ def run_forward_comparison(
             {
                 "status": "running",
                 "design_mode": design_mode,
+                "comparison_tag": comparison_tag,
                 "load_case_names": list(load_case_names),
                 "cases_completed": list(results["cases"].keys()),
                 "latest_case": load_case_name,
@@ -313,13 +318,14 @@ def run_forward_comparison(
         )
         print(f"[case] finished {load_case_name}", flush=True)
 
-    out_path = OUTPUT_DIR / f"fjw_iter017_skeleton_vs_density_{design_mode}_{case_tag}_comparison.json"
+    out_path = OUTPUT_DIR / f"fjw_iter017_skeleton_vs_density_{output_tag}_comparison.json"
     _write_json(out_path, results)
     _write_json(
         progress_path,
         {
             "status": "finished",
             "design_mode": design_mode,
+            "comparison_tag": comparison_tag,
             "load_case_names": list(load_case_names),
             "cases_completed": list(results["cases"].keys()),
             "output_json": str(out_path),
@@ -355,6 +361,11 @@ def main() -> int:
         choices=("force_1", "force_2", "force_3"),
         help="Restrict comparison to one or more load cases. Defaults to all three.",
     )
+    parser.add_argument(
+        "--comparison-tag",
+        type=str,
+        help="Optional tag inserted into progress/comparison filenames to avoid overwriting another candidate.",
+    )
     args = parser.parse_args()
 
     if args.stage == "build_replacement_design":
@@ -365,6 +376,7 @@ def main() -> int:
             design_mode=args.design_mode,
             load_case_names=load_case_names,
             replacement_npz_path=args.replacement_npz,
+            comparison_tag=args.comparison_tag,
         )
 
     print(json.dumps(payload, indent=2, ensure_ascii=False))

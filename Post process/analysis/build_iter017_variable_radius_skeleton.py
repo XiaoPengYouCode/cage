@@ -10,12 +10,14 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_VARIABLE_RADIUS_EDGES_NPZ = (
-    ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_voronoi_edges_variable_radius.npz"
+    ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_voronoi_edges_variable_radius_seed55_plus_lowmid.npz"
 )
 DEFAULT_ALIGNED_DENSITY_NPZ = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_aligned_density_gamma1.npz"
-DEFAULT_OUTPUT_NPZ = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_skeleton_voxels_variable_radius.npz"
-DEFAULT_OUTPUT_GLB = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_skeleton_variable_radius.glb"
-DEFAULT_OUTPUT_STL = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_skeleton_variable_radius.stl"
+DEFAULT_OUTPUT_NPZ = (
+    ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_skeleton_voxels_variable_radius_seed55_plus_lowmid.npz"
+)
+DEFAULT_OUTPUT_GLB = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_skeleton_variable_radius_seed55_plus_lowmid.glb"
+DEFAULT_OUTPUT_STL = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_skeleton_variable_radius_seed55_plus_lowmid.stl"
 
 
 def build_variable_radius_skeleton(

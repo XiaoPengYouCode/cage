@@ -180,10 +180,10 @@ It still remains only a first-pass attachment rule:
 
 - midpoint sampling is a practical first map, not yet a final homogenization
   rule over a finite local support volume;
-- most edges still collapse to the current low-end radius because the measured
-  `r -> E_eff` support is too narrow;
+- the updated same-family low/mid sweep fixes the dominant low-end edge
+  collapse, but the high-modulus end is still clamped;
 - the current replacement field is still a first-pass proxy because it uses
-  `fill_fraction * mean(E_eff(r))` on occupied fine voxels, not yet a final
+  a scalar mean calibrated modulus on occupied fine voxels, not yet a final
   local homogenization tensor.
 
 ## First FE-Ready Replacement Design
@@ -192,6 +192,7 @@ The repository now also contains a first FE-ready coarse-grid replacement
 design built from the variable-radius skeleton:
 
 - `outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius.npz`
+- `outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid.npz`
 
 Supporting script:
 
@@ -203,11 +204,15 @@ Current construction rule:
    grid;
 2. convert each occupied fine voxel radius to calibrated equivalent modulus
    using the stable support stored in
-   `Post process/analysis/output/iter017_band_radius_lookup.json`;
-3. aggregate each coarse cell by
-   `proxy_modulus = fill_fraction * mean(E_eff(r))`;
+   `Post process/analysis/output/iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`;
+3. aggregate each occupied coarse cell by the mean calibrated modulus of its
+   occupied fine voxels;
 4. invert that proxy modulus back through the upstream cage design law to form
    `design_cage_modulus_weighted`.
+
+The older `fill_fraction * mean(E_eff(r))` variant is kept only as a diagnostic
+field. It is not the primary replacement design because it double-penalizes
+porosity that is already represented in the local calibrated Voronoi response.
 
 This is already stronger than the earlier direct occupancy and fill-fraction
 replacements because the FE input now carries a measured radius-to-modulus
@@ -217,10 +222,9 @@ What it still does **not** prove:
 
 - the coarse proxy is scalar and isotropic, so it does not yet reproduce the
   full local stiffness tensor of the rod network;
-- the lookup support is still heavily clamped outside the currently measured
-  radius range;
-- the real three-force comparison result for this variable-radius replacement
-  has not yet been generated on `wuyinyun`.
+- the high-modulus band still clamps at the current sampled high end;
+- the first real `force_1` comparison has been generated on `wuyinyun` and
+  shows that this scalar proxy is not yet structure-level equivalent.
 
 ## Physical Interpretation Baseline
 
@@ -466,16 +470,17 @@ with at least:
 
 ## Current Status
 
-Status on 2026-05-26:
+Status on 2026-05-27:
 
 - geometry generation: implemented
 - final skeleton artifacts: implemented
 - direct binary replacement dry run: executed, but not physically sufficient
 - local `r -> E_eff` calibration baseline: implemented
 - bandwise inverse lookup: implemented
+- same-family low/mid lookup support around `band 3`: implemented
 - variable-radius full-structure attachment: implemented
 - first FE-ready `modulus_weighted` replacement design: implemented
-- measured equivalence result: not yet generated
+- measured `force_1` equivalence result: generated, not yet equivalent
 
 ## Exploratory Dry Run Already Observed
 
@@ -500,4 +505,77 @@ It should be reported as:
 > severe physical mismatch and therefore cannot serve as the final academic
 > validation protocol.
 
-This boundary must stay explicit in the thesis until the experiment is run.
+This boundary must stay explicit in the thesis.
+
+## First Calibrated Proxy Result
+
+The first calibrated `modulus_weighted` replacement run has now also been
+executed for `force_1` using the updated same-family `seed55_plus_lowmid`
+lookup.
+
+Key inputs:
+
+- replacement design:
+  `outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid.npz`
+- comparison output:
+  `outputs/fjw_optimize_real_iter017/fjw_iter017_skeleton_vs_density_modulus_weighted_force_1_seed55_plus_lowmid_comparison.json`
+- field-gap summary:
+  `Post process/analysis/output/iter017_modulus_proxy_gap_seed55_plus_lowmid_summary.json`
+
+Observed outcome:
+
+- reference max displacement: `0.08379 mm`
+- calibrated proxy max displacement: `0.16565 mm`
+- displacement ratio: `1.9769`
+- `bo_sum_next` ratio: `0.9279`
+- `bone_s` mean ratio: `2.6569`
+- `bone_density_delta_sum` ratio: `-1.1277`
+- `bone_s` correlation: `0.3565`
+- `bone_density_delta` correlation: `-0.1132`
+
+The updated lookup fixes a real lower-level problem: only `0.50%` of edges are
+now low-clamped, and the dominant `band 3` is assigned by interpolation rather
+than by the low-radius clamp. The full-structure response is still not
+equivalent.
+
+Interpretation:
+
+> the first calibrated scalar proxy is physically better defined than fill
+> fraction, but it still fails the structure-level equivalence test.
+
+The next validation requirement is therefore no longer merely "add a calibration
+layer". The next requirement is to improve the full-structure replacement model:
+coarse aggregation, high-modulus support, and eventually anisotropic local
+stiffness tensors must be addressed before claiming equivalence.
+
+## Coarse-Aggregation Follow-Up
+
+The first negative result points to a concrete engineering hypothesis: the
+coarse FE replacement grid is receiving stiffness only in cells directly hit by
+fine skeleton voxels. This makes the calibrated field much weaker than the
+upstream pseudo-density field even after the edge-level radius lookup is fixed.
+
+To test this without changing the FE solver, the replacement-design builder now
+supports three aggregation modes:
+
+- `mean_only`: current primary scalar proxy, using the mean calibrated modulus
+  of occupied fine voxels in each coarse cell;
+- `fill_scaled`: older diagnostic `fill_fraction * mean(E_eff)` proxy;
+- `local_support`: assigns the nearest occupied coarse-cell calibrated modulus
+  to neighboring coarse cells inside a finite support radius.
+
+Local non-FE field checks show the expected trend:
+
+| replacement field | design sum | proxy modulus mean | target/proxy correlation |
+|---|---:|---:|---:|
+| `mean_only` | `260.90` | `0.1109 GPa` | `0.0083` |
+| `local_support_r1p5` | `1280.56` | `0.5777 GPa` | `0.0238` |
+| `local_support_r2p5` | `2421.02` | `1.0998 GPa` | `0.0226` |
+| `local_support_r3p5` | `3301.03` | `1.5027 GPa` | `0.0168` |
+
+This shows that local support expansion can recover much of the missing coarse
+stiffness magnitude, but it still does not recover the spatial target-modulus
+field. The next remote comparison should therefore run `force_1` on one
+`local_support` candidate as a controlled test of whether the structure-level
+response improves when the same calibrated skeleton is interpreted over a finite
+coarse support volume.

@@ -11,10 +11,12 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DIR = ROOT / "runs" / "fjw_optimize_real" / "iter_017"
 OUTPUT_DIR = ROOT / "outputs" / "fjw_optimize_real_iter017"
-DEFAULT_REPLACEMENT_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius.npz"
-DEFAULT_VARIABLE_RADIUS_EDGES_NPZ = OUTPUT_DIR / "fjw_iter017_voronoi_edges_variable_radius.npz"
-DEFAULT_LOOKUP_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup.json"
-DEFAULT_OUTPUT_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_modulus_proxy_gap_summary.json"
+DEFAULT_REPLACEMENT_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid.npz"
+DEFAULT_VARIABLE_RADIUS_EDGES_NPZ = OUTPUT_DIR / "fjw_iter017_voronoi_edges_variable_radius_seed55_plus_lowmid.npz"
+DEFAULT_LOOKUP_JSON = (
+    ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup_combined_seed55_plus_lowmid.json"
+)
+DEFAULT_OUTPUT_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_modulus_proxy_gap_seed55_plus_lowmid_summary.json"
 
 
 def _load_workflow_state():
@@ -85,6 +87,22 @@ def build_summary(
 
     unique_bands, band_counts = np.unique(assigned_band_index, return_counts=True)
     unique_status, status_counts = np.unique(assignment_status, return_counts=True)
+    clamped_low_fraction = float(np.mean(assignment_status == "clamped_low"))
+    clamped_high_fraction = float(np.mean(assignment_status == "clamped_high"))
+    diagnosis: list[str] = []
+    if clamped_low_fraction > 0.5:
+        diagnosis.append("Most Voronoi edges collapse to the current minimum stable sampled radius.")
+    else:
+        diagnosis.append(
+            "The edge-level inverse lookup no longer collapses most edges to the low-radius clamp."
+        )
+    diagnosis.extend(
+        [
+            "The coarse FE proxy modulus is still far below the target modulus field on average.",
+            "The current scalar proxy is only a first FE-ready replacement field, not a final homogenized stiffness tensor.",
+            "Structure-level equivalence still requires improving the coarse aggregation rule and expanding high-modulus support.",
+        ]
+    )
 
     return {
         "source_design_npz": str((RUN_DIR / "design_cage.npz").resolve()),
@@ -116,15 +134,10 @@ def build_summary(
             "assigned_radius_mm": _summary_stats(assigned_radius_mm_edges),
             "band_counts": {int(b): int(c) for b, c in zip(unique_bands, band_counts, strict=True)},
             "assignment_status_counts": {str(s): int(c) for s, c in zip(unique_status.tolist(), status_counts, strict=True)},
-            "clamped_low_fraction": float(np.mean(assignment_status == "clamped_low")),
-            "clamped_high_fraction": float(np.mean(assignment_status == "clamped_high")),
+            "clamped_low_fraction": clamped_low_fraction,
+            "clamped_high_fraction": clamped_high_fraction,
         },
-        "diagnosis": [
-            "Current proxy modulus is far below the target modulus field on average.",
-            "Most Voronoi edges collapse to the current minimum stable sampled radius.",
-            "The current coarse proxy multiplies fill fraction by local apparent modulus, which strongly reduces the effective field relative to E_target.",
-            "This replacement can serve as a first physically interpretable proxy, but not yet as the final structure-level equivalence map.",
-        ],
+        "diagnosis": diagnosis,
     }
 
 

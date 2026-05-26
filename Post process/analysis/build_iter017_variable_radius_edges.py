@@ -10,8 +10,12 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EDGES_NPZ = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_voronoi_edges_density.npz"
 DEFAULT_ALIGNED_DENSITY_NPZ = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_aligned_density_gamma1.npz"
-DEFAULT_LOOKUP_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup.json"
-DEFAULT_OUTPUT_NPZ = ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_voronoi_edges_variable_radius.npz"
+DEFAULT_LOOKUP_JSON = (
+    ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup_combined_seed55_plus_lowmid.json"
+)
+DEFAULT_OUTPUT_NPZ = (
+    ROOT / "outputs" / "fjw_optimize_real_iter017" / "fjw_iter017_voronoi_edges_variable_radius_seed55_plus_lowmid.npz"
+)
 
 E0_CAGE_MPA = 110000.0
 EMIN_CAGE_MPA = 11.0

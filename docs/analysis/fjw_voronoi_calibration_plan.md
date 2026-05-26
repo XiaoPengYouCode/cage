@@ -327,19 +327,22 @@ The next implementation step is now sharply defined:
 4. regenerate the full Voronoi skeleton with that calibrated radius field;
 5. only then run the full three-force FE replacement validation.
 
-## First Bandwise Radius Lookup
+## Bandwise Radius Lookup
 
-The repository now also contains a first bandwise inverse lookup:
+The repository now contains a bandwise inverse lookup:
 
 - `Post process/analysis/summarize_voronoi_radius_calibration.py`
 - `Post process/analysis/build_iter017_band_radius_lookup.py`
 - `Post process/analysis/output/voronoi_radius_calibration_summary.json`
 - `Post process/analysis/output/iter017_band_radius_lookup.json`
+- `Post process/analysis/output/iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`
 
-This first lookup uses piecewise-linear inverse interpolation on the stable
-measured mean `r -> E_eff` curve, with clamping outside the stable support.
+The lookup uses piecewise-linear inverse interpolation on the monotone frontier
+of the stable measured mean `r -> E_eff` curve, with clamping outside the
+stable support. Non-monotone or unstable radius rows are kept as diagnostics
+but excluded from inverse assignment.
 
-Current stable measured support:
+The first wide sweep established this stable support:
 
 ```text
 0.08 mm -> 5.01 GPa
@@ -350,7 +353,7 @@ Current stable measured support:
 0.30 mm -> 64.99 GPa
 ```
 
-Current first-pass band assignments:
+The first lookup was too narrow at the low end:
 
 | band | representative `E_target` | assigned radius | status |
 |---|---:|---:|---|
@@ -361,33 +364,54 @@ Current first-pass band assignments:
 | 4 | `36.0443 GPa` | `0.1635 mm` | `interpolated` |
 | 5 | `106.0697 GPa` | `0.30 mm` | `clamped_high` |
 
-This table is valuable because it makes the current inadequacy explicit.
-
-The current stable radius range is still too narrow:
+That table was useful because it made the inadequacy explicit:
 
 - low-modulus bands all collapse to the minimum sampled radius;
 - the highest-modulus band saturates at the maximum sampled radius.
 
-So the current inverse map is executable, but not yet adequate for final
-full-structure regeneration.
-
-That is not a failure. It is the expected outcome of a first two-point radius
-calibration pass, and it gives a concrete next requirement:
+The same-family low/mid sweep then added stable points around the dominant
+`band 3` target:
 
 ```text
-expand the radius sweep until the support of E_eff(r)
-covers the intended target-modulus bands with minimal clamping
+0.077 mm -> 2.06 GPa
+0.078 mm -> 2.10 GPa
+0.079 mm -> 5.24 GPa
+0.081 mm -> 9.46 GPa
+0.082 mm -> 10.48 GPa
 ```
+
+The updated combined lookup assigns:
+
+| band | representative `E_target` | assigned radius | status |
+|---|---:|---:|---|
+| 0 | `0.0113 GPa` | `0.077 mm` | `clamped_low` |
+| 1 | `0.0123 GPa` | `0.077 mm` | `clamped_low` |
+| 2 | `0.0209 GPa` | `0.077 mm` | `clamped_low` |
+| 3 | `2.3763 GPa` | `0.07809 mm` | `interpolated` |
+| 4 | `36.0443 GPa` | `0.1635 mm` | `interpolated` |
+| 5 | `106.0697 GPa` | `0.30 mm` | `clamped_high` |
+
+This is a real improvement at the edge-assignment level. In the updated
+`iter_017` variable-radius edge field, only `0.50%` of edges remain low-clamped
+and `99.46%` of edges use interpolated radii. The dominant `band 3` no longer
+collapses to the minimum stable radius.
+
+This does not yet prove structure-level equivalence. The high-modulus band
+still clamps at the maximum sampled radius, and the coarse replacement field
+still loses most of the target modulus when the sparse skeleton is aggregated
+back to the original design grid.
 
 ## Current Repository Decision
 
 The first calibration implementation in this repository is now fixed as:
 
 1. primary geometry control variable: rod radius `r(x)`;
-2. first inverse map carrier: `iter017_band_radius_lookup.json`;
+2. current inverse map carrier:
+   `iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`;
 3. first full-structure FE input: `design_cage_modulus_weighted`;
-4. next required expansion: broaden the stable `r -> E_eff` support before
-   claiming final full-structure equivalence.
+4. next required expansion: improve the coarse homogenization / aggregation
+   rule and broaden high-modulus support before claiming full-structure
+   equivalence.
 
 ## First Full-Structure Radius Attachment
 
@@ -429,8 +453,8 @@ What it does **not** prove yet:
 
 - midpoint sampling is only the first attachment rule, not yet the final local
   homogenization rule;
-- the current inverse lookup is still strongly clamped, so most edges inherit
-  the same low-end radius in the current baseline;
+- the updated inverse lookup fixes the dominant low-end edge assignment, but
+  the highest target band still clamps to the sampled high end;
 - the resulting variable-radius skeleton has only been converted into a first
   FE-ready proxy field, not yet the final homogenized replacement tensor
   required by the three-force forward replacement validation.
@@ -446,23 +470,47 @@ Current rule:
 
 1. read per-fine-voxel physical radius from the variable-radius skeleton;
 2. convert radius to calibrated apparent modulus using the stable support in
-   `iter017_band_radius_lookup.json`;
-3. aggregate each coarse design cell by
-   `proxy_modulus = fill_fraction * mean(E_eff(r))`;
+   `iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`;
+3. aggregate each occupied coarse design cell by the mean calibrated apparent
+   modulus of its occupied fine voxels;
 4. invert the proxy modulus through the upstream cage design interpolation to
    obtain `design_cage_modulus_weighted`.
 
 This is enough to define the first real full-structure FE input generated
 through the calibration layer.
 
+The older `fill_fraction * mean(E_eff(r))` proxy is still saved as a diagnostic
+field, but it is not the primary replacement field because it penalizes porosity
+twice: once inside the calibrated local Voronoi response and once again during
+coarse-grid aggregation.
+
 It is still only a first-pass proxy because:
 
 - it remains scalar and isotropic;
-- it still depends on the narrow current stable radius support;
-- it has not yet been validated by the remote three-force forward compare.
+- it ignores direction-dependent local stiffness tensors;
+- it still clamps the high-modulus band;
+- its first remote `force_1` full-structure comparison is not equivalent to the
+  reference pseudo-density design.
+
+The updated `force_1` comparison with
+`fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid.npz` returned:
+
+| metric | value |
+|---|---:|
+| replacement design sum | `260.90` |
+| max displacement ratio | `1.9769` |
+| `bo_sum_next` ratio | `0.9279` |
+| `bone_s` mean ratio | `2.6569` |
+| `bone_density_delta_sum` ratio | `-1.1277` |
+| `bone_s` correlation | `0.3565` |
+| `bone_density_delta` correlation | `-0.1132` |
+
+This is a useful negative result. It shows that the edge-level inverse map is no
+longer the main low-end bottleneck, but the first coarse scalar replacement
+still does not reproduce the reference structure-level response.
 
 ```text
-x
+rho(x)
   -> E_target(x)
   -> target-modulus bands
   -> calibrated effective rod radius r_eff
