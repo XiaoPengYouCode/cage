@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = ROOT / "outputs" / "fjw_optimize_real_iter017"
 DEFAULT_SKELETON_NPZ = OUTPUT_DIR / "fjw_iter017_skeleton_voxels_variable_radius.npz"
 DEFAULT_ALIGNED_NPZ = OUTPUT_DIR / "fjw_iter017_aligned_density_gamma1.npz"
-DEFAULT_CALIBRATION_SUMMARY_JSON = ROOT / "Post process" / "analysis" / "output" / "voronoi_radius_calibration_summary.json"
+DEFAULT_LOOKUP_JSON = ROOT / "Post process" / "analysis" / "output" / "iter017_band_radius_lookup.json"
 DEFAULT_OUTPUT_NPZ = OUTPUT_DIR / "fjw_iter017_replacement_design_variable_radius.npz"
 
 X_MIN = 0.001
@@ -40,9 +40,13 @@ def _restore_aligned_points_to_original_voxels(
 
 def _load_radius_modulus_curve(path: Path) -> tuple[np.ndarray, np.ndarray]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    rows = payload.get("inverse_lookup_rows") or payload["radius_calibration_rows"]
-    radii = np.asarray([float(row["radius_mm"]) for row in rows], dtype=np.float64)
-    moduli_gpa = np.asarray([float(row["apparent_modulus_gpa"]["mean"]) for row in rows], dtype=np.float64)
+    if "stable_radius_support_mm" in payload and "stable_modulus_support_gpa" in payload:
+        radii = np.asarray(payload["stable_radius_support_mm"], dtype=np.float64)
+        moduli_gpa = np.asarray(payload["stable_modulus_support_gpa"], dtype=np.float64)
+    else:
+        rows = payload.get("inverse_lookup_rows") or payload["radius_calibration_rows"]
+        radii = np.asarray([float(row["radius_mm"]) for row in rows], dtype=np.float64)
+        moduli_gpa = np.asarray([float(row["apparent_modulus_gpa"]["mean"]) for row in rows], dtype=np.float64)
     order = np.argsort(radii)
     return radii[order], moduli_gpa[order]
 
@@ -64,7 +68,7 @@ def build_replacement_design(
     *,
     skeleton_npz: Path,
     aligned_npz: Path,
-    calibration_summary_json: Path,
+    lookup_json: Path,
     output_npz: Path,
 ) -> dict[str, object]:
     workflow_state = _load_workflow_state()
@@ -86,7 +90,7 @@ def build_replacement_design(
     coarse_voxel_size_m = coarse_voxel_size_mm / 1e3
     raw_shape = np.asarray(workflow_state.mesh.grid_shape_xyz, dtype=np.int32)
 
-    support_r_mm, support_e_gpa = _load_radius_modulus_curve(calibration_summary_json)
+    support_r_mm, support_e_gpa = _load_radius_modulus_curve(lookup_json)
 
     occupied_indices = np.argwhere(occupancy)
     aligned_points_m = origin_m + occupied_indices.astype(np.float64) * fine_voxel_size_m
@@ -207,7 +211,7 @@ def build_replacement_design(
         "subdivision": np.array(subdivision, dtype=np.int32),
         "source_skeleton_npz": np.array(str(skeleton_npz.resolve())),
         "source_aligned_npz": np.array(str(aligned_npz.resolve())),
-        "source_calibration_summary_json": np.array(str(calibration_summary_json.resolve())),
+        "source_lookup_json": np.array(str(lookup_json.resolve())),
         "design_rule": np.array("modulus_weighted_radius_proxy"),
         "design_rule_note": np.array(
             "Per-coarse-cell proxy modulus = fill_fraction * mean(calibrated modulus of occupied fine voxels), "
@@ -236,7 +240,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skeleton-npz", type=Path, default=DEFAULT_SKELETON_NPZ)
     parser.add_argument("--aligned-npz", type=Path, default=DEFAULT_ALIGNED_NPZ)
-    parser.add_argument("--calibration-summary-json", type=Path, default=DEFAULT_CALIBRATION_SUMMARY_JSON)
+    parser.add_argument("--lookup-json", type=Path, default=DEFAULT_LOOKUP_JSON)
+    parser.add_argument("--calibration-summary-json", type=Path, dest="lookup_json_legacy")
     parser.add_argument("--output-npz", type=Path, default=DEFAULT_OUTPUT_NPZ)
     return parser
 
@@ -247,7 +252,7 @@ def main() -> int:
     summary = build_replacement_design(
         skeleton_npz=args.skeleton_npz,
         aligned_npz=args.aligned_npz,
-        calibration_summary_json=args.calibration_summary_json,
+        lookup_json=args.lookup_json_legacy or args.lookup_json,
         output_npz=args.output_npz,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
