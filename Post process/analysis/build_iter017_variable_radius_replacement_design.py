@@ -145,10 +145,16 @@ def build_replacement_design(
         where=coarse_counts > 0,
     )
 
-    # First-pass FE-ready proxy:
-    # occupancy fraction keeps the geometric support information,
-    # while the occupied-voxel modulus mean injects the calibrated radius signal.
-    coarse_proxy_modulus_gpa = coarse_fill * coarse_modulus_mean_gpa
+    # The calibrated E_eff(r) already comes from a homogenized Voronoi unit-cell response.
+    # Multiplying it by another coarse fill fraction would penalize porosity twice:
+    # once inside the local calibration, and once again during coarse aggregation.
+    coarse_proxy_modulus_fill_scaled_gpa = coarse_fill * coarse_modulus_mean_gpa
+    coarse_proxy_modulus_mean_only_gpa = np.where(
+        coarse_counts > 0,
+        coarse_modulus_mean_gpa,
+        0.0,
+    )
+    coarse_proxy_modulus_gpa = coarse_proxy_modulus_mean_only_gpa
     coarse_proxy_modulus_mpa = coarse_proxy_modulus_gpa * 1e3
     coarse_design_modulus_weighted = np.where(
         coarse_counts > 0,
@@ -198,12 +204,18 @@ def build_replacement_design(
         "design_radius_mean_mm": replacement_radius_mean_mm.astype(np.float32),
         "design_radius_max_mm": replacement_radius_max_mm.astype(np.float32),
         "design_proxy_modulus_gpa": replacement_proxy_modulus_gpa.astype(np.float32),
+        "design_proxy_modulus_fill_scaled_gpa": coarse_proxy_modulus_fill_scaled_gpa[
+            design_anchor_indices[:, 0],
+            design_anchor_indices[:, 1],
+            design_anchor_indices[:, 2],
+        ].astype(np.float32),
         "design_anchor_indices": design_anchor_indices.astype(np.int32),
         "coarse_counts_grid": coarse_counts.astype(np.int32),
         "coarse_fill_grid": coarse_fill.astype(np.float32),
         "coarse_radius_mean_mm_grid": coarse_radius_mean_mm.astype(np.float32),
         "coarse_radius_max_mm_grid": coarse_radius_max_mm.astype(np.float32),
         "coarse_proxy_modulus_gpa_grid": coarse_proxy_modulus_gpa.astype(np.float32),
+        "coarse_proxy_modulus_fill_scaled_gpa_grid": coarse_proxy_modulus_fill_scaled_gpa.astype(np.float32),
         "raw_grid_shape_xyz": raw_shape.astype(np.int32),
         "coarse_voxel_size_m": np.array(coarse_voxel_size_m, dtype=np.float32),
         "coarse_voxel_size_mm": np.array(coarse_voxel_size_mm, dtype=np.float32),
@@ -212,10 +224,11 @@ def build_replacement_design(
         "source_skeleton_npz": np.array(str(skeleton_npz.resolve())),
         "source_aligned_npz": np.array(str(aligned_npz.resolve())),
         "source_lookup_json": np.array(str(lookup_json.resolve())),
-        "design_rule": np.array("modulus_weighted_radius_proxy"),
+        "design_rule": np.array("modulus_mean_radius_proxy"),
         "design_rule_note": np.array(
-            "Per-coarse-cell proxy modulus = fill_fraction * mean(calibrated modulus of occupied fine voxels), "
-            "then inverted through the upstream cage modulus law."
+            "Per-coarse-cell proxy modulus = mean(calibrated apparent modulus of occupied fine voxels). "
+            "The old fill_fraction * E_eff variant is still stored as a diagnostic field, but is not used "
+            "as the primary FE replacement because it double-penalizes porosity."
         ),
     }
     output_npz.parent.mkdir(parents=True, exist_ok=True)
@@ -230,6 +243,15 @@ def build_replacement_design(
         "replacement_modulus_weighted_mean": float(np.mean(replacement_modulus_weighted, dtype=np.float64)),
         "replacement_modulus_weighted_max": float(np.max(replacement_modulus_weighted)),
         "replacement_proxy_modulus_gpa_max": float(np.max(replacement_proxy_modulus_gpa)),
+        "replacement_proxy_modulus_fill_scaled_gpa_max": float(
+            np.max(
+                coarse_proxy_modulus_fill_scaled_gpa[
+                    design_anchor_indices[:, 0],
+                    design_anchor_indices[:, 1],
+                    design_anchor_indices[:, 2],
+                ]
+            )
+        ),
         "subdivision": subdivision,
     }
 
