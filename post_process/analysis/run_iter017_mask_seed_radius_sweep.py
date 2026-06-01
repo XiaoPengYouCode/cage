@@ -353,6 +353,13 @@ def _summarize_skeleton(
 def _combine_rows(summary_jsonl: Path, output_json: Path, output_csv: Path) -> dict[str, object]:
     rows = list(_load_existing_jsonl(summary_jsonl).values())
     rows.sort(key=lambda row: (int(row["seed_count"]), float(row["radius_mm"])))
+    fieldnames: list[str] = []
+    seen_fields: set[str] = set()
+    for row in rows:
+        for key in row:
+            if key not in seen_fields:
+                seen_fields.add(key)
+                fieldnames.append(key)
     payload = {
         "summary_jsonl": str(summary_jsonl.resolve()),
         "row_count": len(rows),
@@ -363,7 +370,7 @@ def _combine_rows(summary_jsonl: Path, output_json: Path, output_csv: Path) -> d
     _write_json(output_json, payload)
     if rows:
         with output_csv.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
     return payload
