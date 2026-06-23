@@ -26,3 +26,28 @@ wheels/
 # Local experiment artifacts
 /experiment_output/
 /viewer/public/data/
+
+# AI tool directories
+.reasonix/
+
+# TeX build artifacts
+texput.log
+flowchart-preview.log
+
+# Local workspaces (separate TeX/slide projects)
+/tex_workspace/
+
+# Legacy "Post process" directory (old path with space)
+/Post process/
+
+# Post-process workspace (local analysis scripts & outputs)
+/post_process/
+
+# Thesis build artifacts
+/docs/thesis/
+
+# Generated analysis doc
+docs/analysis/thesis_chapter_completion_baseline.md
+
+# FEM convergence scratch
+src/fem_analysis/fjw_convergence.py

@@ -222,5 +222,44 @@ class MeshTransformAppliedTest(unittest.TestCase):
             )
 
 
+class CVTHistoryTest(unittest.TestCase):
+    """The plotting history helper must use the same Lloyd update as the pipeline."""
+
+    def test_lloyd_relax_points_matches_file_api(self) -> None:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from matlab2stl_pipeline.obb_aligner import fit_obb, align_density
+        from matlab2stl_pipeline.seed_sampler import sample_seeds
+        from matlab2stl_pipeline.cvt_relaxation import lloyd_relax, lloyd_relax_points
+
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            raw_npz = _make_synthetic_raw_npz(td / "raw.npz", shape=(30, 30, 30))
+            obb_npz = td / "obb.npz"
+            aligned_npz = td / "aligned.npz"
+
+            fit_obb(raw_npz, obb_npz)
+            align_density(raw_npz, obb_npz, aligned_npz, gamma=1.0)
+
+            seeds_npz = td / "seeds.npz"
+            sample_seeds(aligned_npz, seeds_npz, num_seeds=20, gamma=1.0)
+
+            cvt_npz = td / "seeds_cvt.npz"
+            file_points = lloyd_relax(seeds_npz, aligned_npz, cvt_npz, num_iters=3)
+
+            seeds_data = np.load(str(seeds_npz))
+            aligned_data = np.load(str(aligned_npz))
+            helper_points, history = lloyd_relax_points(
+                seeds_data["seed_points"],
+                aligned_data["grid_shape_xyz"],
+                num_iters=3,
+            )
+
+            np.testing.assert_allclose(helper_points, file_points, rtol=0, atol=1e-6)
+            self.assertEqual(history.shape, (3,))
+            self.assertTrue(np.all(history["iteration"] == np.array([1, 2, 3])))
+            self.assertTrue(np.all(history["max_displacement"] >= 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()
