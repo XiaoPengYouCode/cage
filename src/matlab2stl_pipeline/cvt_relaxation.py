@@ -28,6 +28,14 @@ import numpy as np
 import scipy.spatial
 
 
+CVT_HISTORY_DTYPE = np.dtype([
+    ("iteration", np.int32),
+    ("max_displacement", np.float64),
+    ("mean_displacement", np.float64),
+    ("kept_degenerate_cells", np.int32),
+])
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers (mirrors box_voronoi helpers to keep this module standalone)
 # ---------------------------------------------------------------------------
@@ -168,32 +176,14 @@ def lloyd_relax(
     origin_m: np.ndarray = seeds_data["origin_m"]
     num_seeds = len(seeds)
 
-    box_min = np.zeros(3, dtype=np.float64)
-    box_max = np.array([s - 1 for s in grid_shape], dtype=np.float64)
-
     print(f"  CVT Lloyd: {num_iters} iterations, {num_seeds} seeds …")
+    seed_points, _history = lloyd_relax_points(
+        seeds,
+        grid_shape,
+        num_iters=num_iters,
+        progress_interval=50,
+    )
 
-    for it in range(num_iters):
-        all_seeds = _mirror_seeds(seeds, box_min, box_max)
-        vor = scipy.spatial.Voronoi(all_seeds)
-
-        new_seeds = np.empty_like(seeds)
-        n_kept = 0  # seeds whose centroid computation failed → kept in place
-
-        for i in range(num_seeds):
-            centroid = _cell_geometric_centroid(vor, i, box_min, box_max)
-            if centroid is not None:
-                new_seeds[i] = centroid
-            else:
-                new_seeds[i] = seeds[i]
-                n_kept += 1
-
-        seeds = np.clip(new_seeds, box_min + 1e-3, box_max - 1e-3)
-
-        if (it + 1) % 50 == 0 or it == num_iters - 1:
-            print(f"    iter {it + 1:4d}/{num_iters}  (degenerate cells kept: {n_kept})")
-
-    seed_points = seeds.astype(np.float32)
     seed_points_m = origin_m + seed_points * voxel_size_xyz_m
 
     payload = {
@@ -211,3 +201,57 @@ def lloyd_relax(
     np.savez_compressed(str(output_path), **payload)
     print(f"  CVT seeds → {output_path}")
     return seed_points
+
+
+def lloyd_relax_points(
+    seeds: np.ndarray,
+    grid_shape: list[int] | tuple[int, int, int] | np.ndarray,
+    *,
+    num_iters: int = 500,
+    progress_interval: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Run the same continuous Lloyd update as the 681 pipeline and record history.
+
+    The returned history has one row per iteration with the maximum and mean
+    seed displacement in voxel-index units.  This is intended for plotting and
+    regression checks, while ``lloyd_relax`` remains the file-based pipeline API.
+    """
+    seeds = np.asarray(seeds, dtype=np.float64).copy()
+    grid_shape_arr = np.asarray(grid_shape, dtype=np.float64)
+    if grid_shape_arr.shape != (3,):
+        raise ValueError(f"grid_shape must have shape (3,), got {grid_shape_arr.shape}")
+
+    num_seeds = len(seeds)
+    box_min = np.zeros(3, dtype=np.float64)
+    box_max = grid_shape_arr - 1.0
+    history = np.zeros(num_iters, dtype=CVT_HISTORY_DTYPE)
+
+    for it in range(num_iters):
+        old_seeds = seeds
+        all_seeds = _mirror_seeds(old_seeds, box_min, box_max)
+        vor = scipy.spatial.Voronoi(all_seeds)
+
+        new_seeds = np.empty_like(old_seeds)
+        n_kept = 0
+
+        for i in range(num_seeds):
+            centroid = _cell_geometric_centroid(vor, i, box_min, box_max)
+            if centroid is not None:
+                new_seeds[i] = centroid
+            else:
+                new_seeds[i] = old_seeds[i]
+                n_kept += 1
+
+        seeds = np.clip(new_seeds, box_min + 1e-3, box_max - 1e-3)
+        displacement = np.linalg.norm(seeds - old_seeds, axis=1)
+        history[it] = (
+            it + 1,
+            float(np.max(displacement)) if len(displacement) else 0.0,
+            float(np.mean(displacement)) if len(displacement) else 0.0,
+            n_kept,
+        )
+
+        if progress_interval is not None and ((it + 1) % progress_interval == 0 or it == num_iters - 1):
+            print(f"    iter {it + 1:4d}/{num_iters}  (degenerate cells kept: {n_kept})")
+
+    return seeds.astype(np.float32), history

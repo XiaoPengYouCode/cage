@@ -1,0 +1,3 @@
+[submodule "slide_workspace"]
+	path = slide_workspace
+	url = https://github.com/TouchFishPioneer/SEU-Beamer-Slide.git

@@ -80,11 +80,11 @@ The repository now also has a first real local calibration FE pass executed on
 
 Artifacts:
 
-- `Post process/analysis/output/iter017_target_modulus_bands.json`
+- `post_process/analysis/output/iter017_target_modulus_bands.json`
 - `outputs/voronoi_radius_calibration_radius_only_remote_wide_v2/calibration_spec_manifest.json`
 - `outputs/voronoi_radius_calibration_radius_only_remote_wide_v2/calibration_fe_results.json`
-- `Post process/analysis/output/voronoi_radius_calibration_summary.json`
-- `Post process/analysis/output/iter017_band_radius_lookup.json`
+- `post_process/analysis/output/voronoi_radius_calibration_summary.json`
+- `post_process/analysis/output/iter017_band_radius_lookup.json`
 
 What this pass proves:
 
@@ -125,7 +125,7 @@ What it does **not** prove yet:
 
 The repository now also contains a first executable bandwise inverse lookup:
 
-- `Post process/analysis/output/iter017_band_radius_lookup.json`
+- `post_process/analysis/output/iter017_band_radius_lookup.json`
 
 That lookup is intentionally simple:
 
@@ -160,8 +160,8 @@ Artifacts:
 
 Supporting scripts:
 
-- `Post process/analysis/build_iter017_variable_radius_edges.py`
-- `Post process/analysis/build_iter017_variable_radius_skeleton.py`
+- `post_process/analysis/build_iter017_variable_radius_edges.py`
+- `post_process/analysis/build_iter017_variable_radius_skeleton.py`
 
 Current attachment rule:
 
@@ -196,7 +196,7 @@ design built from the variable-radius skeleton:
 
 Supporting script:
 
-- `Post process/analysis/build_iter017_variable_radius_replacement_design.py`
+- `post_process/analysis/build_iter017_variable_radius_replacement_design.py`
 
 Current construction rule:
 
@@ -204,7 +204,7 @@ Current construction rule:
    grid;
 2. convert each occupied fine voxel radius to calibrated equivalent modulus
    using the stable support stored in
-   `Post process/analysis/output/iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`;
+   `post_process/analysis/output/iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`;
 3. aggregate each occupied coarse cell by the mean calibrated modulus of its
    occupied fine voxels;
 4. invert that proxy modulus back through the upstream cage design law to form
@@ -465,7 +465,7 @@ with at least:
 2. one script or notebook family that builds the local calibration database;
 3. one script that runs or reuses the three-force forward comparison;
 4. one machine-readable summary file for the comparison metrics;
-5. one figure or table family tied into `Post process/figure/`;
+5. one figure or table family tied into `post_process/figure/`;
 6. thesis text updated to state the calibration layer explicitly.
 
 ## Current Status
@@ -520,7 +520,7 @@ Key inputs:
 - comparison output:
   `outputs/fjw_optimize_real_iter017/fjw_iter017_skeleton_vs_density_modulus_weighted_force_1_seed55_plus_lowmid_comparison.json`
 - field-gap summary:
-  `Post process/analysis/output/iter017_modulus_proxy_gap_seed55_plus_lowmid_summary.json`
+  `post_process/analysis/output/iter017_modulus_proxy_gap_seed55_plus_lowmid_summary.json`
 
 Observed outcome:
 
@@ -564,18 +564,48 @@ supports three aggregation modes:
 - `local_support`: assigns the nearest occupied coarse-cell calibrated modulus
   to neighboring coarse cells inside a finite support radius.
 
-Local non-FE field checks show the expected trend:
+Coordinate-correct local non-FE field checks show the expected trend:
 
 | replacement field | design sum | proxy modulus mean | target/proxy correlation |
 |---|---:|---:|---:|
-| `mean_only` | `260.90` | `0.1109 GPa` | `0.0083` |
-| `local_support_r1p5` | `1280.56` | `0.5777 GPa` | `0.0238` |
-| `local_support_r2p5` | `2421.02` | `1.0998 GPa` | `0.0226` |
-| `local_support_r3p5` | `3301.03` | `1.5027 GPa` | `0.0168` |
+| `coordfix_mean_only` | `130.62` | `0.1206 GPa` | `0.0512` |
+| `coordfix_local_support_r3p5` | `1574.07` | `1.0967 GPa` | `0.1221` |
 
 This shows that local support expansion can recover much of the missing coarse
 stiffness magnitude, but it still does not recover the spatial target-modulus
-field. The next remote comparison should therefore run `force_1` on one
-`local_support` candidate as a controlled test of whether the structure-level
-response improves when the same calibrated skeleton is interpreted over a finite
-coarse support volume.
+field.
+
+The remote `force_1` comparison has now been run for a coordinate-corrected
+`local_support_r3p5` candidate. The coordinate audit found that the first
+`local_support_r3p5` replacement projected restored skeleton voxels with the FE
+material-equivalent `0.6 mm` length scale. The corrected replacement uses the
+source density grid's `0.4 mm` voxel size when mapping restored skeleton voxels
+back to the coarse design grid.
+
+Key output:
+
+- replacement design:
+  `outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius_seed55_plus_lowmid_coordfix_local_support_r3p5.npz`
+- comparison output:
+  `outputs/fjw_optimize_real_iter017/fjw_iter017_skeleton_vs_density_modulus_weighted_force_1_seed55_plus_lowmid_coordfix_local_support_r3p5_comparison.json`
+
+Observed outcome:
+
+| metric | `mean_only` | `coordfix_local_support_r3p5` |
+|---|---:|---:|
+| replacement design sum | `260.90` | `1574.07` |
+| max displacement ratio | `1.9769` | `1.8003` |
+| `bo_sum_next` ratio | `0.9279` | `0.9385` |
+| `bone_s` mean ratio | `2.6569` | `2.1909` |
+| `bone_density_delta_sum` ratio | `-1.1277` | `-0.8152` |
+| `bone_s` correlation | `0.3565` | `0.2837` |
+| `bone_density_delta` correlation | `-0.1132` | `-0.0421` |
+
+This is a useful improvement but still a negative equivalence result. It
+shows that coordinate-correct finite support improves the target bone total and
+bone-density-delta sign error relative to `mean_only`, while the displacement
+ratio, stimulus correlation, and negative total bone-density update still fail
+the structure-level equivalence check. The next step should therefore move
+beyond scalar support expansion: either improve the spatial assignment of target
+modulus, expand high-modulus radius support, or introduce a local anisotropic
+stiffness tensor.

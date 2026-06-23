@@ -205,16 +205,16 @@ What is still missing:
 
 The current turn adds two concrete first-pass tools around this gap:
 
-- `Post process/analysis/build_iter017_target_modulus_bands.py`
+- `post_process/analysis/build_iter017_target_modulus_bands.py`
   - summarizes the real `iter_017` target-modulus field into representative
     calibration bands;
-- `Post process/analysis/generate_voronoi_radius_calibration_specs.py`
+- `post_process/analysis/generate_voronoi_radius_calibration_specs.py`
   - generates a first-pass STL specimen family for radius sweeps at fixed seed
     and topology settings, with an explicit physical `cell_size_mm`.
 
 The current turn also adds:
 
-- `Post process/analysis/evaluate_voronoi_radius_calibration.py`
+- `post_process/analysis/evaluate_voronoi_radius_calibration.py`
   - voxelizes those STL specimens and runs a local compression FE solve to
     measure apparent stiffness and apparent modulus.
 
@@ -233,11 +233,11 @@ using:
 
 Outputs:
 
-- `Post process/analysis/output/iter017_target_modulus_bands.json`
+- `post_process/analysis/output/iter017_target_modulus_bands.json`
 - `outputs/voronoi_radius_calibration_radius_only_remote_wide_v2/calibration_spec_manifest.json`
 - `outputs/voronoi_radius_calibration_radius_only_remote_wide_v2/calibration_fe_results.json`
-- `Post process/analysis/output/voronoi_radius_calibration_summary.json`
-- `Post process/analysis/output/iter017_band_radius_lookup.json`
+- `post_process/analysis/output/voronoi_radius_calibration_summary.json`
+- `post_process/analysis/output/iter017_band_radius_lookup.json`
 
 Three important facts are now established by real FE data:
 
@@ -331,11 +331,11 @@ The next implementation step is now sharply defined:
 
 The repository now contains a bandwise inverse lookup:
 
-- `Post process/analysis/summarize_voronoi_radius_calibration.py`
-- `Post process/analysis/build_iter017_band_radius_lookup.py`
-- `Post process/analysis/output/voronoi_radius_calibration_summary.json`
-- `Post process/analysis/output/iter017_band_radius_lookup.json`
-- `Post process/analysis/output/iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`
+- `post_process/analysis/summarize_voronoi_radius_calibration.py`
+- `post_process/analysis/build_iter017_band_radius_lookup.py`
+- `post_process/analysis/output/voronoi_radius_calibration_summary.json`
+- `post_process/analysis/output/iter017_band_radius_lookup.json`
+- `post_process/analysis/output/iter017_band_radius_lookup_combined_seed55_plus_lowmid.json`
 
 The lookup uses piecewise-linear inverse interpolation on the monotone frontier
 of the stable measured mean `r -> E_eff` curve, with clamping outside the
@@ -428,8 +428,8 @@ Artifacts:
 
 Supporting scripts:
 
-- `Post process/analysis/build_iter017_variable_radius_edges.py`
-- `Post process/analysis/build_iter017_variable_radius_skeleton.py`
+- `post_process/analysis/build_iter017_variable_radius_edges.py`
+- `post_process/analysis/build_iter017_variable_radius_skeleton.py`
 
 Current rule:
 
@@ -464,7 +464,7 @@ What it does **not** prove yet:
 The repository now also contains a first FE-ready proxy replacement design:
 
 - `outputs/fjw_optimize_real_iter017/fjw_iter017_replacement_design_variable_radius.npz`
-- `Post process/analysis/build_iter017_variable_radius_replacement_design.py`
+- `post_process/analysis/build_iter017_variable_radius_replacement_design.py`
 
 Current rule:
 
@@ -508,6 +508,33 @@ The updated `force_1` comparison with
 This is a useful negative result. It shows that the edge-level inverse map is no
 longer the main low-end bottleneck, but the first coarse scalar replacement
 still does not reproduce the reference structure-level response.
+
+A finite-support coarse aggregation candidate was then tested as
+`local_support_r3p5`. This keeps the same calibrated skeleton and assigns each
+nearby coarse cell the nearest occupied coarse-cell calibrated modulus inside a
+`3.5`-cell support radius. A coordinate audit then found that the first
+`local_support_r3p5` replacement had projected restored skeleton voxels with the
+FE material-equivalent `0.6 mm` length scale. The correct projection back to the
+source density grid uses the original `0.4 mm` voxel size. The corrected remote
+`force_1` comparison is therefore:
+
+| metric | `mean_only` | `coordfix_local_support_r3p5` |
+|---|---:|---:|
+| replacement design sum | `260.90` | `1574.07` |
+| max displacement ratio | `1.9769` | `1.8003` |
+| `bo_sum_next` ratio | `0.9279` | `0.9385` |
+| `bone_s` mean ratio | `2.6569` | `2.1909` |
+| `bone_density_delta_sum` ratio | `-1.1277` | `-0.8152` |
+| `bone_s` correlation | `0.3565` | `0.2837` |
+| `bone_density_delta` correlation | `-0.1132` | `-0.0421` |
+
+This corrected result is still negative for structure-level equivalence. The
+coordinate fix preserves the high-radius/high-modulus edge in the FE design
+vector, but the finite-support scalar proxy remains too soft, weakly correlated
+with the reference stimulus field, and still reverses the total bone-density
+update. The next model must improve spatial modulus assignment, expand
+high-modulus calibration support, or move from scalar apparent modulus to a
+local stiffness tensor.
 
 ```text
 rho(x)
